@@ -629,17 +629,16 @@
         .map((layer) => stage.children.indexOf(layer))
         .filter((index) => index >= 0)
         .reduce((max, index) => Math.max(max, index), characterTopIndex >= 0 ? characterTopIndex : -1);
-      if (subtitleLayer) {
-        const subtitleIndex = refreshedCharacterTopIndex >= 0 ? refreshedCharacterTopIndex + 1 : stage.children.length;
-        stage.addChildAt(subtitleLayer, Math.min(subtitleIndex, stage.children.length));
-      }
-
-      const refreshedSubtitleIndex = subtitleLayer ? stage.children.indexOf(subtitleLayer) : -1;
-      const scenarioIndex = refreshedSubtitleIndex >= 0
-        ? refreshedSubtitleIndex + 1
-        : (refreshedCharacterTopIndex >= 0 ? refreshedCharacterTopIndex + 1 : stage.children.length);
+      const scenarioIndex = refreshedCharacterTopIndex >= 0
+        ? refreshedCharacterTopIndex + 1
+        : stage.children.length;
       if (this.container) {
         stage.addChildAt(this.container, Math.min(scenarioIndex, stage.children.length));
+      }
+      // Scenario frames are an opaque foreground layer. Keep subtitles after
+      // it so an asynchronous scenario texture update cannot cover speech.
+      if (subtitleLayer) {
+        stage.addChild(subtitleLayer);
       }
     },
 
@@ -1793,8 +1792,28 @@
       const previousUrl = this.backgroundUrl;
       const tex = PIXI.Texture.from(url);
       diag("background.load_start", { url, previousUrl: previousUrl || "" });
+      if (!tex || !tex.baseTexture) {
+        const error = new Error("PIXI.Texture.from returned no baseTexture");
+        console.warn("[WallpaperScene] background texture unavailable; keeping previous background:", url);
+        diag("background.error_keep_existing", {
+          url,
+          previousUrl: previousUrl || "",
+          error: error.message,
+        }, "error");
+        return;
+      }
       const installBackground = () => {
-        const nextBg = new PIXI.Sprite(tex);
+        if (!tex.baseTexture) {
+          failBackground(new Error("background texture lost its baseTexture"));
+          return;
+        }
+        let nextBg;
+        try {
+          nextBg = new PIXI.Sprite(tex);
+        } catch (err) {
+          failBackground(err);
+          return;
+        }
         this.app.stage.addChildAt(nextBg, 0);
         this.bg = nextBg;
         this.backgroundUrl = url;
@@ -1849,11 +1868,26 @@
     },
 
     _replaceAmbientLowSprite(texture) {
+      if (!texture || !texture.baseTexture) {
+        console.warn("[WallpaperScene] ambient low texture became unavailable");
+        diag("ambient_low.replace_skipped", {
+          error: "texture has no baseTexture",
+        }, "error");
+        return;
+      }
+      let nextSprite;
+      try {
+        nextSprite = new PIXI.Sprite(texture);
+      } catch (err) {
+        console.warn("[WallpaperScene] ambient low sprite creation failed", err);
+        diag("ambient_low.replace_skipped", { error: String(err && (err.message || err)) }, "error");
+        return;
+      }
       if (this.ambientLowSprite) {
         this.ambientLayer.removeChild(this.ambientLowSprite);
         this.ambientLowSprite.destroy({ texture: true, baseTexture: true });
       }
-      this.ambientLowSprite = new PIXI.Sprite(texture);
+      this.ambientLowSprite = nextSprite;
       this.ambientLowSprite.width = this.app.screen.width;
       this.ambientLowSprite.height = this.app.screen.height;
       this.ambientLowSprite.alpha = this._ambientLowIdleAlpha();
@@ -1867,6 +1901,14 @@
     _loadAmbientLowSprite(url) {
       if (!this.app || !url) return;
       const texture = PIXI.Texture.from(url);
+      if (!texture || !texture.baseTexture) {
+        console.warn("[WallpaperScene] ambient low texture unavailable:", url);
+        diag("ambient_low.error", {
+          url,
+          error: "PIXI.Texture.from returned no baseTexture",
+        }, "error");
+        return;
+      }
       const applyTexture = () => this._replaceAmbientLowSprite(texture);
       if (texture.baseTexture.valid) {
         applyTexture();
@@ -1879,11 +1921,30 @@
     },
 
     _replaceAmbientSprite(texture, sourceKind) {
+      if (!texture || !texture.baseTexture) {
+        console.warn("[WallpaperScene] ambient texture became unavailable:", sourceKind);
+        diag("ambient.replace_skipped", {
+          source: sourceKind,
+          error: "texture has no baseTexture",
+        }, "error");
+        return;
+      }
+      let nextSprite;
+      try {
+        nextSprite = new PIXI.Sprite(texture);
+      } catch (err) {
+        console.warn("[WallpaperScene] ambient sprite creation failed:", sourceKind, err);
+        diag("ambient.replace_skipped", {
+          source: sourceKind,
+          error: String(err && (err.message || err)),
+        }, "error");
+        return;
+      }
       if (this.ambientSprite) {
         this.ambientLayer.removeChild(this.ambientSprite);
         this.ambientSprite.destroy({ texture: true, baseTexture: true });
       }
-      this.ambientSprite = new PIXI.Sprite(texture);
+      this.ambientSprite = nextSprite;
       this.ambientSprite.width = this.app.screen.width;
       this.ambientSprite.height = this.app.screen.height;
       this.ambientSprite.alpha = this._ambientBaseAlpha();
@@ -1901,6 +1962,15 @@
     _loadAmbientSprite(url, sourceKind) {
       if (!this.app || !url) return;
       const texture = PIXI.Texture.from(url);
+      if (!texture || !texture.baseTexture) {
+        console.warn("[WallpaperScene] ambient texture unavailable:", url);
+        diag("ambient.error", {
+          url,
+          source: sourceKind,
+          error: "PIXI.Texture.from returned no baseTexture",
+        }, "error");
+        return;
+      }
       const applyTexture = () => this._replaceAmbientSprite(texture, sourceKind);
       if (texture.baseTexture.valid) {
         applyTexture();

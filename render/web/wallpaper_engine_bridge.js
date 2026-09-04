@@ -10,6 +10,29 @@
   var _resolvedBridgePort = null;
   var _resolvedAssetVersion = "";
   var _assetReloading = false;
+  var _lastAppliedRecoveryTime = Object.create(null);
+  var RECOVERY_METHODS = {
+    setSubtitle: true,
+    setEmotion: true,
+    setSpeaking: true,
+    setMouth: true,
+    setMode: true,
+    setActivity: true,
+    setWorkMode: true,
+    setIdleAnimation: true,
+    triggerSpriteForgeIntent: true,
+    releaseSpriteForge: true,
+    holdSpriteFrame: true,
+    clearSpriteHold: true,
+  };
+
+  function recoverySlot(call) {
+    const method = String(call && call.method || "");
+    if (method === "triggerSpriteForgeIntent" || method === "releaseSpriteForge") {
+      return "spriteForgeIntent";
+    }
+    return method;
+  }
 
   function bridgePort() {
     if (_resolvedBridgePort !== null) return _resolvedBridgePort;
@@ -325,6 +348,11 @@
 
   function applyCall(call) {
     if (!call || !call.method) return;
+    var callTime = Number(call.t);
+    var slot = recoverySlot(call);
+    if (RECOVERY_METHODS[call.method] && Number.isFinite(callTime)) {
+      _lastAppliedRecoveryTime[slot] = Math.max(Number(_lastAppliedRecoveryTime[slot]) || 0, callTime);
+    }
     if (call.method === "pointerWheel") {
       dispatchPointerWheel(call.args && call.args[0]);
       return;
@@ -492,6 +520,37 @@
     const res = await fetch(endpoint("state"), { cache: "no-store" });
     const state = await res.json();
     (state.calls || []).forEach(applyCall);
+  }
+
+  // Lively's hidden WebView2 can retain an EventSource connection after a
+  // wallpaper restart while no longer delivering its messages. Bootstrap is
+  // intentionally excluded here: only newer replayable runtime state is
+  // recovered, so this cannot repeatedly reload character assets.
+  async function recoverReplayState() {
+    const res = await fetch(endpoint("state?replay=1"), { cache: "no-store" });
+    const state = await res.json();
+    const calls = (state.calls || []).filter(function (call) {
+      if (!call || !RECOVERY_METHODS[call.method]) return false;
+      const callTime = Number(call && call.t);
+      const lastApplied = Number(_lastAppliedRecoveryTime[recoverySlot(call)]) || 0;
+      return !Number.isFinite(callTime) || callTime > lastApplied;
+    });
+    calls.forEach(applyCall);
+    if (calls.length) {
+      clientLog("state.recovered_from_replay", {
+        calls: calls.map(function (call) { return call.method; }),
+      }, "warning");
+    }
+  }
+
+  function installReplayStateRecovery() {
+    setInterval(function () {
+      recoverReplayState().catch(function (err) {
+        clientLog("state.recovery_failed", {
+          error: String(err && (err.stack || err)),
+        }, "warning");
+      });
+    }, 2000);
   }
 
   function loadStateWithRetry(attemptsLeft) {
@@ -793,6 +852,7 @@
     // 3. Fetch initial state with the resolved port, then establish the SSE stream.
     loadStateWithRetry(5)
       .then(function () {
+        installReplayStateRecovery();
         if (flagEnabled("noEvents")) {
           clientLog("bridge.events_skipped_by_flag", { flag: "noEvents" }, "warning");
           return;

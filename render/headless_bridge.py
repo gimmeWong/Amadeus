@@ -49,6 +49,8 @@ class HeadlessRenderBridge:
         self._current_emotion: str = ""
         self._current_speaking: bool = False
         self._current_mouth_value: float = 0.0
+        self._current_subtitle: str = ""
+        self._current_spriteforge_intent: dict | None = None
         self._held_frame = None
 
     async def _event_worker(self) -> None:
@@ -111,6 +113,7 @@ class HeadlessRenderBridge:
         self._emit(Method.RENDER_MOUTH, {"value": self._current_mouth_value})
 
     def set_subtitle(self, text: str) -> None:
+        self._current_subtitle = str(text or "")
         self._emit(Method.RENDER_SUBTITLE, {"text": text})
 
     def set_mode(self, mode: str) -> None:
@@ -142,9 +145,20 @@ class HeadlessRenderBridge:
         self._spriteforge_graph = payload
         self._emit(Method.RENDER_SPRITEFORGE_GRAPH, payload)
 
-    def trigger_spriteforge_intent(self, label: str) -> None:
-        payload = spriteforge_intent_payload(label)
+    def trigger_spriteforge_intent(self, label: str, options: dict | None = None) -> None:
+        payload = spriteforge_intent_payload(label, **dict(options or {}))
+        self._current_spriteforge_intent = payload
         self._emit(Method.RENDER_SPRITEFORGE_INTENT, payload)
+
+    def remember_spriteforge_intent(self, label: str, options: dict | None = None) -> None:
+        """Update replay state when another canonical emitter owns the event."""
+        self._current_spriteforge_intent = spriteforge_intent_payload(
+            label, **dict(options or {})
+        )
+
+    def remember_spriteforge_release(self) -> None:
+        """Clear the replayed pose after the canonical presentation releases it."""
+        self._current_spriteforge_intent = None
 
     def hold_sprite_frame(self, which=None) -> None:
         self._held_frame = which
@@ -154,9 +168,10 @@ class HeadlessRenderBridge:
         self._held_frame = None
         self._emit(Method.RENDER_CLEAR_HOLD, {})
 
-    def release_spriteforge(self) -> None:
+    def release_spriteforge(self, options: dict | None = None) -> None:
         self._held_frame = None
-        self._emit(Method.RENDER_SPRITEFORGE_RELEASE, {})
+        self._current_spriteforge_intent = None
+        self._emit(Method.RENDER_SPRITEFORGE_RELEASE, dict(options or {}))
 
     async def replay_all(self) -> None:
         """Re-emit all registered state for a newly-connected iframe client.
@@ -185,6 +200,12 @@ class HeadlessRenderBridge:
             await self._emit_async(Method.RENDER_EMOTION, {"emotion": self._current_emotion})
         await self._emit_async(Method.RENDER_SPEAKING, {"speaking": self._current_speaking})
         await self._emit_async(Method.RENDER_MOUTH, {"value": self._current_mouth_value})
+        await self._emit_async(Method.RENDER_SUBTITLE, {"text": self._current_subtitle})
+        if self._current_spriteforge_intent is not None:
+            await self._emit_async(
+                Method.RENDER_SPRITEFORGE_INTENT,
+                dict(self._current_spriteforge_intent),
+            )
         if self._held_frame is not None:
             await self._emit_async(Method.RENDER_HOLD_FRAME, {"which": self._held_frame})
 

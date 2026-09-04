@@ -80,10 +80,9 @@ function AmadeusApp() {
     setPage('chat')
 
     if (next) {
-      if (wallpaperActive) {
-        try { await send('wallpaper.stop', {}) } catch {}
-        setWallpaperActive(false)
-      }
+      // Keep the external Wallpaper host alive while Render is active. This
+      // isolates the surface-lifecycle behavior from later character-routing
+      // decisions: Lively must not lose its iframe asset origin on a switch.
       // Start PixiJS render mode
       const backend = 'graph'
       send('expression.set_backend', { backend }).catch(() => {})
@@ -93,9 +92,10 @@ function AmadeusApp() {
         if (res?.url) setRenderAssetUrl(String(res.url))
       } catch { /* AssetServer might already be running */ }
     } else {
-      // Switch back to VTS
-      send('expression.set_backend', { backend: 'vts' }).catch(() => {})
       send('render.stop', {}).catch(() => {})
+      // Wallpaper and Render share the graph expression signal stream. Only
+      // return to VTS when no local Pixi/SpriteForge surface remains active.
+      send('expression.set_backend', { backend: wallpaperActive ? 'graph' : 'vts' }).catch(() => {})
       setRenderAssetUrl('')
     }
   }, [send, renderActive, wallpaperActive])
@@ -107,11 +107,11 @@ function AmadeusApp() {
 
     if (next) {
       if (renderActive) {
-        send('expression.set_backend', { backend: 'vts' }).catch(() => {})
         try { await send('render.stop', {}) } catch {}
         setRenderActive(false)
         setRenderAssetUrl('')
       }
+      send('expression.set_backend', { backend: 'graph' }).catch(() => {})
       try {
         const res = await send('wallpaper.start', ELECTRON_SLICE_START_PARAMS)
         setWallpaperActive(res?.status !== 'error')
@@ -122,6 +122,7 @@ function AmadeusApp() {
     } else {
       try { await send('wallpaper.stop', {}) } catch {}
       await window.amadeus?.closeElectronSlice()
+      send('expression.set_backend', { backend: renderActive ? 'graph' : 'vts' }).catch(() => {})
       setWallpaperActive(false)
     }
   }, [wallpaperActive, renderActive, send])

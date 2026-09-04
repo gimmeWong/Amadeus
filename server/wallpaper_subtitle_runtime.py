@@ -17,6 +17,7 @@ from server import presentation_runtime
 class _SubtitleState:
     japanese_text: str = ""
     chinese_text: str = ""
+    sentence_id: str = ""
 
 
 _state = _SubtitleState()
@@ -53,10 +54,55 @@ def set_renderer(render_fn: Callable[[str], None] | None) -> None:
     _render()
 
 
-def update(japanese_text: str, chinese_text: str = "") -> str:
+def begin(sentence_id: str, japanese_text: str = "") -> str:
+    """Start or switch the caption slot to a newly playing sentence."""
+
+    sentence_id = str(sentence_id or "")
+    if not sentence_id:
+        return current_text()
+    if _state.sentence_id == sentence_id:
+        # A streaming sentence can call the physical chunk hook repeatedly.
+        # Do not erase a translation that already arrived for this same ID.
+        if japanese_text and not _state.japanese_text:
+            _state.japanese_text = str(japanese_text)
+        return _render()
+    _state.sentence_id = sentence_id
+    _state.japanese_text = str(japanese_text or "")
+    _state.chinese_text = ""
+    return _render()
+
+
+def update(
+    japanese_text: str,
+    chinese_text: str = "",
+    sentence_id: str | None = None,
+) -> str:
+    """Update the active sentence, rejecting late updates from older sentences."""
+
+    incoming_id = str(sentence_id or "")
+    if incoming_id:
+        if _state.sentence_id and incoming_id != _state.sentence_id:
+            return current_text()
+        _state.sentence_id = incoming_id
     _state.japanese_text = str(japanese_text or "")
     _state.chinese_text = str(chinese_text or "")
     return _render()
+
+
+def clear(sentence_id: str | None = None) -> str:
+    """Clear only the requested sentence, preserving a newer active sentence."""
+
+    incoming_id = str(sentence_id or "")
+    if incoming_id and _state.sentence_id and incoming_id != _state.sentence_id:
+        return current_text()
+    _state.japanese_text = ""
+    _state.chinese_text = ""
+    _state.sentence_id = ""
+    return _render()
+
+
+def sentence_id() -> str:
+    return _state.sentence_id
 
 
 def current_text() -> str:
@@ -71,9 +117,8 @@ def current_text() -> str:
         if zh and ja and zh != ja:
             return f"{zh}\n{ja}"
         return zh or ja
-    # Chinese mode is intentionally strict: playback often sends the Japanese
-    # sentence first and fills the translated subtitle later. Falling back to
-    # Japanese here makes the CRT flicker between languages.
+    # Translation mode is strict: the Japanese source is never exposed as a
+    # temporary fallback while the Chinese translation is still pending.
     return zh
 
 

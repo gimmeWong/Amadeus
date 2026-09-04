@@ -114,10 +114,15 @@ class _BridgeState:
         self.canvas_action_handler: Callable[[dict], dict] | None = None
         self.browser_action_handler: Callable[[dict], dict] | None = None
 
-    def snapshot(self) -> dict:
+    def snapshot(self, *, replay_only: bool = False) -> dict:
         with self.lock:
-            calls = list(self.bootstrap_calls)
-            calls.extend(self.last_calls.values())
+            calls = [] if replay_only else list(self.bootstrap_calls)
+            # Replay events are keyed by state slot, but updates must retain
+            # their event order. Dict insertion order reflects the first
+            # occurrence of a slot, not the latest transition (for example,
+            # a new intent after a release), which can otherwise apply a stale
+            # release after the new intent.
+            calls.extend(sorted(self.last_calls.values(), key=lambda item: item.get("t", 0)))
         return {"calls": calls}
 
     def canvas_snapshot(self) -> dict:
@@ -171,6 +176,10 @@ class _BridgeState:
                 q.put_nowait(event)
             except Exception:
                 pass
+
+    def forget_replay(self, key: str) -> None:
+        with self.lock:
+            self.last_calls.pop(str(key), None)
 
     def add_bootstrap(self, event: dict, key: str | None = None) -> None:
         with self.lock:
@@ -502,7 +511,9 @@ def _make_bridge_handler(
                 self._json_response({"ok": False, "error": auth_error}, 403)
                 return
             if self.path.startswith("/wallpaper-engine/state") or self.path.startswith("/wallpaper/state"):
-                body = json.dumps(state.snapshot(), ensure_ascii=False).encode("utf-8")
+                query = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)
+                replay_only = str((query.get("replay") or [""])[0]).lower() in {"1", "true", "yes"}
+                body = json.dumps(state.snapshot(replay_only=replay_only), ensure_ascii=False).encode("utf-8")
                 self._headers(200, "application/json; charset=utf-8")
                 self.send_header("Content-Length", str(len(body)))
                 self.end_headers()
@@ -838,7 +849,7 @@ class WallpaperEngineBridgeHost:
         self._event("setSpeaking", bool(speaking), replay="speaking")
 
     def set_mouth_value(self, value: float) -> None:
-        self._event("setMouth", max(0.0, min(1.0, float(value))))
+        self._event("setMouth", max(0.0, min(1.0, float(value))), replay="mouth")
 
     def set_subtitle(self, text: str) -> None:
         self._event("setSubtitle", text, replay="subtitle")
@@ -919,9 +930,19 @@ class WallpaperEngineBridgeHost:
         )
 
     def trigger_spriteforge_intent(self, label: str, options: dict | None = None) -> None:
-        self._event("triggerSpriteForgeIntent", str(label or ""), dict(options or {}))
+        # Keep the active pose in the state snapshot. A newly-created iframe
+        # fetches /state before opening SSE, so a transient-only event would
+        # otherwise be lost during Wallpaper/Render restarts.
+        self._state.forget_replay("spriteforgeRelease")
+        self._event(
+            "triggerSpriteForgeIntent",
+            str(label or ""),
+            dict(options or {}),
+            replay="spriteforgeIntent",
+        )
 
     def release_spriteforge(self, options: dict | None = None) -> None:
+        self._state.forget_replay("spriteforgeIntent")
         self._event(
             "releaseSpriteForge",
             dict(options or {}),
