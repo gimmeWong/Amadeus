@@ -152,4 +152,3 @@ SpriteForge 的动作和释放操作共用一个重放槽位。这样可以避�
 ## 范围和非目标
 
 本方案不修改模型/provider 层、TTS 音色选择、Live2D 资源或 Lively 安装过程，只关注后端、Render、Wallpaper 以及浏览器客户端之间的人物表现状态传输和恢复。
-
