@@ -122,6 +122,20 @@ placeholder，本版本不声称已经发布独立 SDK 或 conformance suite。
 DeepSeek 主 Chat、本地 Qwen/SenseVoice 和 GPT-SoVITS v3。llama.cpp 是可选
 本地 LLM profile，不是首发安装前提。
 
+依赖按能力分四级，按需选装（torch 只在 L3/L4 进入安装）：
+
+| 梯级 | 能力 | 安装方式 |
+|---|---|---|
+| L1 core | 文字聊天、工作、Provider、角色渲染 | `pip install -e .` |
+| L2 voice | 说（远程 TTS、播放、口型）+ 听（麦克风、远程 ASR）| `pip install -e ".[voice]"` |
+| L3 vad | 实时打断（角色说话时可以插话）| `pip install -e ".[voice,vad]"` |
+| L4 local-cu124 | 本地 GPT-SoVITS / Qwen3 ASR / 唤醒词 | `pip install -e ".[voice,vad,local-cu124]"` |
+
+L2 无 vad 层时，语音端点自动降级为能量检测；安装 vad 后恢复
+silero 精准端点与打断。
+
+各梯级安装完成后，可用 `python tools/verify_python_environment.py --profile <cpu|voice|vad|cu124>` 验证所装梯级的导入合同（`ci` 同 `cpu`）。
+
 ### 参考硬件
 
 - Windows 11
@@ -155,6 +169,38 @@ cd ..
 `npm ci` 会通过项目 postinstall 安装锁定的 Electron 运行时。cu124 profile 固定
 `torch==2.5.1+cu124`、`torchaudio==2.5.1+cu124` 和本地模型依赖集；它以当前
 实际运行环境为第一版基线。
+
+> **GeForce RTX 50 系（Blackwell，社区验证配置）**：本项目当前使用的
+> `torch==2.5.1+cu124` profile 不兼容 RTX 50 系，无法运行本地 CUDA
+> 语音模型。50 系用户需要更新 NVIDIA 驱动，并改用社区已验证可运行的
+> PyTorch 2.7.0 CUDA 12.8 组合。
+>
+> **GeForce RTX 50 series (Blackwell, community-validated configuration):**
+> the current `torch==2.5.1+cu124` profile is incompatible with RTX 50-series
+> GPUs and cannot run the local CUDA voice models. Update the NVIDIA driver and
+> use the community-validated PyTorch 2.7.0 CUDA 12.8 combination instead:
+>
+> 请只在单独的实验项目虚拟环境（例如 `.venv_cu128`）激活后运行以下命令，
+> 不要覆盖正式 `.venv_cu124`。
+>
+> Run this only after activating a separate experimental project venv (for
+> example `.venv_cu128`); do not overwrite the formal `.venv_cu124` environment.
+>
+> ```powershell
+> python -m pip install --upgrade --force-reinstall `
+>   torch==2.7.0 torchvision==0.22.0 torchaudio==2.7.0 `
+>   --index-url https://download.pytorch.org/whl/cu128
+> ```
+>
+> 该组合目前尚未经过项目的完整 clean-install、ASR/TTS/VAD 与 Electron 回归；
+> 当前 `requirements-cu124.txt` 和 `--profile cu124` 验证器仍以
+> `torch==2.5.1+cu124` 为准，因此不应将其视为 cu124 正式基线的替代品。
+>
+> This combination has not yet passed the project's full clean-install,
+> ASR/TTS/VAD, and Electron regression gates. The current
+> `requirements-cu124.txt` and `--profile cu124` verifier still require
+> `torch==2.5.1+cu124`, so this is not a replacement for the official cu124
+> baseline.
 
 ### 安装外部运行资产
 
@@ -206,6 +252,10 @@ Copy-Item .env.example .env
 
 启动型设置变更后按 **Restart backend to apply**。角色包显示
 **Not installed** 是健康状态，不影响 Chat、Work 或 headless 启动。
+
+默认 B2 AppSession 动作路径不会阻塞首次配置。尚未配置受支持的 AUIP
+动作模型凭据时，Chat 和 Settings 仍可启动；应用动作保持 fail-closed，
+Settings 会明确显示缺少的能力。
 
 ## 兼容路径
 

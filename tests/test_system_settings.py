@@ -11,6 +11,7 @@ from server.handlers.system_handler import (
     SystemHandler,
     _avatar_configuration,
     _model_connections,
+    _model_role_configuration,
     _voice_configuration,
     _work_provider_configuration,
 )
@@ -49,6 +50,27 @@ def test_settings_connection_descriptors_never_return_secret_values() -> None:
         "TTS_API_KEY",
         "MIMO_TTS_API_KEY",
     }
+
+
+def test_settings_exposes_default_b2_as_needing_setup_without_action_model() -> None:
+    from config import settings
+
+    with (
+        patch.object(settings, "AUIP_APPSESSION_ROLE_BRANCH_MODE", "b2"),
+        patch.object(settings, "AUIP_CONTROL_DECISION_ENABLED", True),
+        patch(
+            "server.auip_b2_role_llm.has_b2_role_model_config",
+            return_value=False,
+        ),
+    ):
+        roles = {group["id"]: group for group in _model_role_configuration(settings)}
+
+    action = roles["auip_action"]
+    assert action["active"] is True
+    assert action["configured"] is False
+    assert action["status"] == "needs_setup"
+    assert action["status_ok"] is False
+    assert "Application actions remain blocked" in action["status_detail"]
 
 
 def test_deepseek_main_model_is_an_independent_editable_startup_field() -> None:
@@ -238,6 +260,9 @@ def test_mimo_desktop_settings_persist_values_and_encrypt_the_key() -> None:
 
 
 def test_voice_settings_publish_microphone_choices_without_recording_audio() -> None:
+    import pytest
+
+    pytest.importorskip("pyaudio", reason="voice tier (pyaudio) is not installed")
     from asr.microphone import MicDeviceDescriptor
     from config import settings
 
