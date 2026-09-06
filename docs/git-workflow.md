@@ -81,6 +81,21 @@ git merge --no-ff feature/chat-history
 git push origin personal/main
 ```
 
+工作项完成后，使用晋级脚本完成完整顺序。脚本会先推送当前 `feature/*` 或 `fix/*` 到 `origin`，再抓取 `upstream`，更新并推送 `main`，把最新 `main` 和指定的工作分支合并到 `personal/main`，运行 Electron 测试，只有测试成功才推送 `personal/main`：
+
+```powershell
+git switch feature/chat-history
+.\scripts\promote_personal_main.ps1
+```
+
+也可以显式指定工作分支：
+
+```powershell
+.\scripts\promote_personal_main.ps1 -WorkBranch fix/wallpaper-reconnect
+```
+
+脚本默认要求 `electron` 测试通过；测试失败或合并冲突时会停止，不推送 `personal/main`。`pre-push` 会阻止绕过脚本手工推送 `personal/main`。`-SkipOriginMainPush` 只在你明确不想更新 fork 的 `main` 时使用，仍会先把本地 `main` 快进到 `upstream/main`。
+
 `main` 始终只跟踪上游的干净基线；`personal/main` 才是包含个人功能的完整版本。上游更新会先进入 `main`，不会自动改写或覆盖 `personal/main`。需要更新个人主线时，先把工作项基于最新 `main` 验证，再按需合并进入 `personal/main`。
 
 ## 同步开发中的分支
@@ -100,7 +115,7 @@ git push --force-with-lease origin feature/chat-history
 
 - `pre-commit` 会阻止直接在 `main` 和 `personal/main` 上提交；`personal/main` 允许经过测试的合并提交。仅在确认要制作特殊维护提交时，临时设置 `$env:AMADEUS_ALLOW_MAIN_COMMIT = '1'`。
 - `pre-push` 会阻止向 `upstream` 推送，避免误操作原作者仓库。
-- hooks 只负责提醒和阻止明显错误；主线同步、分支命名和审查仍以本文件为准。
+- hooks 只负责提醒和阻止明显错误；`promote_personal_main.ps1` 负责个人主线晋级，主线同步、分支命名和审查仍以本文件为准。普通 feature/fix 推送不会自动合并到 `personal/main`，避免未测试的 WIP 改动污染完整主线。
 
 ## 查看状态
 
