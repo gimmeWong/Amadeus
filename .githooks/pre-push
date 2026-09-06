@@ -1,0 +1,27 @@
+#!/bin/sh
+set -eu
+
+remote_name=${1:-}
+remote_url=${2:-}
+
+case "$remote_name" in
+  upstream)
+    echo "Blocked: pushing to upstream is disabled ($remote_url). Push only to origin." >&2
+    exit 1
+    ;;
+esac
+
+while read -r local_ref local_sha remote_ref remote_sha; do
+  [ -n "$local_ref" ] || continue
+  case "$local_ref" in
+    refs/heads/main)
+      case "$remote_name" in
+        origin) ;;
+        *)
+          echo "Blocked: main may only be pushed to origin, not '$remote_name'." >&2
+          exit 1
+          ;;
+      esac
+      ;;
+  esac
+done

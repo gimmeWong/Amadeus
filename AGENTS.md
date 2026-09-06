@@ -11,3 +11,9 @@ These rules apply to implementation, repair, refactoring, and test work in this 
 - Test semantic contracts and user-visible outcomes rather than incidental wording, filenames, timing, or tool order unless those details are themselves part of the contract. Cover both sides of a boundary so a fix cannot merely trade one regression for another.
 - Before retaining a compatibility path or workaround, prove that a live caller still needs it. Remove superseded defenses and update the relevant tests and documentation when a structural fix replaces them.
 - Optimize for code that a new maintainer can explain from its invariants. Elegance here means fewer independent rules, clear ownership, observable failure, and no loss of necessary safety—not merely fewer lines.
+
+## Fork Git Workflow
+
+This fork keeps `upstream/main` as the read-only upstream baseline, local `main` as the clean synchronization branch, and `origin/main` as the fork's mirror of local `main`. Product work belongs on one branch per work item: `feature/*` for features, `fix/*` for bug fixes, or the documented `docs/*`, `test/*`, `chore/*`, and `refactor/*` equivalents. Do not develop directly on `main`.
+
+After a fresh clone, enable the repository hooks with `.\scripts\setup_git_workflow.ps1`. Use `.\scripts\sync_main.ps1` to fetch `upstream`, fast-forward local `main`, and push the synchronized main to `origin`. Use `.\scripts\new_work_branch.ps1 -Name <name> -Kind feature|fix` to create a work branch from the synchronized `main`. Full details are in [docs/git-workflow.md](docs/git-workflow.md). The hooks block direct commits on `main` and all pushes to `upstream`; they do not replace review or testing.

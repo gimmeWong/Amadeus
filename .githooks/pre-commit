@@ -1,0 +1,9 @@
+#!/bin/sh
+set -eu
+
+branch=$(git symbolic-ref --quiet --short HEAD 2>/dev/null || true)
+if [ "$branch" = "main" ] && [ "${AMADEUS_ALLOW_MAIN_COMMIT:-}" != "1" ]; then
+  echo "Blocked: direct commits on main are disabled." >&2
+  echo "Create a feature/* or fix/* branch first, or set AMADEUS_ALLOW_MAIN_COMMIT=1 for a deliberate maintenance commit." >&2
+  exit 1
+fi
