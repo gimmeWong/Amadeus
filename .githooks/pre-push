@@ -14,11 +14,11 @@ esac
 while read -r local_ref local_sha remote_ref remote_sha; do
   [ -n "$local_ref" ] || continue
   case "$local_ref" in
-    refs/heads/main)
+    refs/heads/main|refs/heads/personal/main)
       case "$remote_name" in
         origin) ;;
         *)
-          echo "Blocked: main may only be pushed to origin, not '$remote_name'." >&2
+          echo "Blocked: main and personal/main may only be pushed to origin, not '$remote_name'." >&2
           exit 1
           ;;
       esac

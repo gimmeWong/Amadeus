@@ -2,8 +2,21 @@
 set -eu
 
 branch=$(git symbolic-ref --quiet --short HEAD 2>/dev/null || true)
-if [ "$branch" = "main" ] && [ "${AMADEUS_ALLOW_MAIN_COMMIT:-}" != "1" ]; then
-  echo "Blocked: direct commits on main are disabled." >&2
-  echo "Create a feature/* or fix/* branch first, or set AMADEUS_ALLOW_MAIN_COMMIT=1 for a deliberate maintenance commit." >&2
-  exit 1
+if [ "${AMADEUS_ALLOW_MAIN_COMMIT:-}" = "1" ]; then
+  exit 0
 fi
+
+case "$branch" in
+  main)
+    echo "Blocked: direct commits on main are disabled." >&2
+    echo "Create a feature/* or fix/* branch first, or set AMADEUS_ALLOW_MAIN_COMMIT=1 for a deliberate maintenance commit." >&2
+    exit 1
+    ;;
+  personal/main)
+    if ! git rev-parse -q --verify MERGE_HEAD >/dev/null 2>&1; then
+      echo "Blocked: personal/main accepts tested merge commits, not direct development commits." >&2
+      echo "Switch to a feature/* or fix/* branch, then merge the tested result into personal/main." >&2
+      exit 1
+    fi
+    ;;
+esac

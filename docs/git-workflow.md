@@ -7,6 +7,7 @@
 | `upstream/main` | 原作者仓库的最新代码，只读参考 | 否 |
 | 本地 `main` | 同步上游的干净基线 | 否 |
 | `origin/main` | 个人 fork 的主分支，与本地 `main` 同步 | 否 |
+| `personal/main` | 个人完整、可运行、经过测试的产品主线 | 仅通过合并进入 |
 | `feature/*` | 新功能 | 是 |
 | `fix/*` | 缺陷修复 | 是 |
 
@@ -53,11 +54,34 @@ git push origin main
 .\scripts\new_work_branch.ps1 -Name wallpaper-reconnect -Kind fix
 ```
 
-开发期间不要在 `main` 上提交。一个独立功能或问题使用一个独立分支；完成后再推送到个人 fork：
+开发期间不要在 `main` 或 `personal/main` 上直接开发。一个独立功能或问题使用一个独立分支；完成后再推送到个人 fork：
 
 ```powershell
 git push -u origin feature/chat-history
 ```
+
+## 维护个人完整主线
+
+`personal/main` 是个人 fork 中叠加了多个已选择、已验证功能的完整产品版本。它不是上游同步分支，也不是日常开发分支；只把已经完成测试的 `feature/*` 或 `fix/*` 合并进去。
+
+首次创建个人主线：
+
+```powershell
+git switch main
+git switch -c personal/main
+git push -u origin personal/main
+```
+
+将经过验证的工作项合并到个人主线：
+
+```powershell
+git switch personal/main
+git merge --no-ff feature/chat-history
+# 运行相关测试并确认通过
+git push origin personal/main
+```
+
+`main` 始终只跟踪上游的干净基线；`personal/main` 才是包含个人功能的完整版本。上游更新会先进入 `main`，不会自动改写或覆盖 `personal/main`。需要更新个人主线时，先把工作项基于最新 `main` 验证，再按需合并进入 `personal/main`。
 
 ## 同步开发中的分支
 
@@ -74,7 +98,7 @@ git push --force-with-lease origin feature/chat-history
 
 ## 保护边界
 
-- `pre-commit` 会阻止直接在 `main` 上提交。仅在确认要制作特殊维护提交时，临时设置 `$env:AMADEUS_ALLOW_MAIN_COMMIT = '1'`。
+- `pre-commit` 会阻止直接在 `main` 和 `personal/main` 上提交；`personal/main` 允许经过测试的合并提交。仅在确认要制作特殊维护提交时，临时设置 `$env:AMADEUS_ALLOW_MAIN_COMMIT = '1'`。
 - `pre-push` 会阻止向 `upstream` 推送，避免误操作原作者仓库。
 - hooks 只负责提醒和阻止明显错误；主线同步、分支命名和审查仍以本文件为准。
 
