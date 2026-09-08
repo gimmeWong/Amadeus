@@ -9,12 +9,14 @@ interface Props {
   wallpaperActive: boolean
   onToggleRender: () => void
   onToggleWallpaper: () => void
+  onOpenChatDock: () => void
 }
 
 type NavItem =
   | { kind: 'page'; page: Page; label: string; icon: 'Edit' | 'Setting' | 'CommandPrompt' | 'Movie' }
   | { kind: 'toggle'; label: string; icon: 'Video'; iconActive: 'Movie'; active: boolean; onClick: () => void }
   | { kind: 'toggle-simple'; label: string; icon: 'Tiles'; active: boolean; onClick: () => void }
+  | { kind: 'action'; label: string; icon: 'Chat'; onClick: () => void }
 
 function navButtonStyle(active: boolean, collapsed: boolean): CSSProperties {
   return {
@@ -35,6 +37,7 @@ function CollapseGlyph({ collapsed }: { collapsed: boolean }) {
 export default function Sidebar({
   page, onNavigate,
   renderActive, wallpaperActive, onToggleRender, onToggleWallpaper,
+  onOpenChatDock,
 }: Props) {
   const [collapsed, setCollapsed] = useState(() => localStorage.getItem('amadeus.sidebar.collapsed') === '1')
 
@@ -61,6 +64,7 @@ export default function Sidebar({
       active: wallpaperActive,
       onClick: onToggleWallpaper,
     },
+    { kind: 'action', label: 'Chat Dock', icon: 'Chat', onClick: onOpenChatDock },
     { kind: 'page', page: 'vn', label: 'VN Player', icon: 'Movie' },
   ]
 
@@ -91,6 +95,28 @@ export default function Sidebar({
               (e.currentTarget as HTMLElement).style.backgroundColor = 'transparent'
               ;(e.currentTarget as HTMLElement).style.color = 'var(--muted)'
             }
+          }}
+        >
+          <FluentIcon name={item.icon} size={18} />
+          {!collapsed && <span>{item.label}</span>}
+        </button>
+      )
+    }
+    if (item.kind === 'action') {
+      return (
+        <button
+          key={item.label}
+          onClick={item.onClick}
+          title={collapsed ? item.label : 'Open the floating Chat Dock'}
+          className="flex items-center gap-3 w-full text-left text-[13px] transition-colors duration-150"
+          style={navButtonStyle(false, collapsed)}
+          onMouseEnter={e => {
+            ;(e.currentTarget as HTMLElement).style.backgroundColor = 'var(--hover)'
+            ;(e.currentTarget as HTMLElement).style.color = 'var(--text)'
+          }}
+          onMouseLeave={e => {
+            ;(e.currentTarget as HTMLElement).style.backgroundColor = 'transparent'
+            ;(e.currentTarget as HTMLElement).style.color = 'var(--muted)'
           }}
         >
           <FluentIcon name={item.icon} size={18} />

@@ -62,7 +62,7 @@ export default function ChatBubble({ role, text, translation = '', streaming, on
   if (role === 'system') {
     return (
       <div
-        className="flex justify-center px-[18px]"
+        className="chat-bubble-system flex justify-center px-[18px] py-[4px]"
         style={{ marginTop: hasPreviousMessage ? 10 : 0 }}
       >
         <span className="text-[12px] text-[#C42B1C] bg-[#FFF3CD]/60 rounded-lg px-4 py-1.5 max-w-[80%] text-center">
@@ -77,7 +77,7 @@ export default function ChatBubble({ role, text, translation = '', streaming, on
 
   return (
     <div
-      className="flex items-start gap-[10px]"
+      className="chat-bubble-row flex items-start gap-[10px] py-[4px]"
       style={{
         flexDirection: isUser ? 'row-reverse' : 'row',
         paddingInline: 'clamp(24px, 2.5vw, 34px)',
@@ -86,7 +86,7 @@ export default function ChatBubble({ role, text, translation = '', streaming, on
     >
       {/* compact desktop avatar */}
       <div
-        className="shrink-0 flex items-center justify-center text-[10px] select-none overflow-hidden"
+        className="chat-bubble-avatar shrink-0 flex items-center justify-center text-[10px] select-none overflow-hidden"
         style={{
           width: 28, height: 28, borderRadius: 14,
           fontWeight: 600, fontFamily: 'var(--font)',
@@ -103,7 +103,7 @@ export default function ChatBubble({ role, text, translation = '', streaming, on
 
       {/* Keep short messages compact while long messages wrap within the chat lane. */}
       <div
-        className="min-w-0"
+        className="chat-bubble-content min-w-0"
         style={{
           flex: '0 1 auto',
           width: 'fit-content',
@@ -111,7 +111,7 @@ export default function ChatBubble({ role, text, translation = '', streaming, on
         }}
       >
         <div
-          className="text-[12px] leading-[150%] whitespace-pre-wrap break-words select-text"
+          className="chat-bubble-surface text-[12px] leading-[150%] whitespace-pre-wrap break-words select-text"
           style={{
             fontFamily: 'var(--font-cjk)',
             borderRadius: 8, padding: '8px 11px',

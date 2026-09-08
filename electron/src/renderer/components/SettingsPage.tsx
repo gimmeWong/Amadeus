@@ -92,6 +92,12 @@ interface DesktopSettingsSnapshot {
   mcpConnectionsLocked: boolean
 }
 
+const RUNTIME_DESKTOP_SETTING_KEYS: Record<string, string> = {
+  presentation_locale: 'AMADEUS_PRESENTATION_LOCALE',
+  wallpaper_caption_mode: 'AMADEUS_WALLPAPER_CAPTION_MODE',
+  chat_translation_subtitles_enabled: 'AMADEUS_CHAT_TRANSLATION_SUBTITLES_ENABLED',
+}
+
 function asRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' && !Array.isArray(value)
     ? value as Record<string, unknown>
@@ -528,6 +534,14 @@ export default function SettingsPage({ send, subscribe }: Props) {
     try {
       const response = await send('system.set_config', { values: { [key]: value } })
       setConfig((response.values as Record<string, unknown>) ?? response)
+      const desktopKey = RUNTIME_DESKTOP_SETTING_KEYS[key]
+      if (desktopKey && window.amadeus) {
+        const saved = await window.amadeus.updateDesktopSettings({
+          values: { [desktopKey]: value as string | boolean },
+        })
+        if (!saved.ok) throw new Error(saved.error || `Could not save ${key}`)
+        if (saved.settings) setDesktop(saved.settings as unknown as DesktopSettingsSnapshot)
+      }
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : `Could not update ${key}`)
     } finally {

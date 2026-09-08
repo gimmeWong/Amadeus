@@ -136,6 +136,9 @@ const VALUE_KEYS = new Set([
   'VTS_ENABLED',
   'VTS_WS_URL',
   'VTS_TOKEN_FILE',
+  'AMADEUS_PRESENTATION_LOCALE',
+  'AMADEUS_WALLPAPER_CAPTION_MODE',
+  'AMADEUS_CHAT_TRANSLATION_SUBTITLES_ENABLED',
 ])
 
 const SECRET_KEYS = new Set([
@@ -176,6 +179,9 @@ const VALUE_CHOICES: Record<string, ReadonlySet<string>> = {
   AEC_REALTIME_BARGE_IN: new Set(['true', 'false']),
   TTS_API_STREAM_PROTOCOL: new Set(['buffered', 'openai_sse']),
   VTS_ENABLED: new Set(['true', 'false']),
+  AMADEUS_PRESENTATION_LOCALE: new Set(['en-US', 'zh-CN', 'ja-JP']),
+  AMADEUS_WALLPAPER_CAPTION_MODE: new Set(['translated', 'source', 'bilingual', 'off']),
+  AMADEUS_CHAT_TRANSLATION_SUBTITLES_ENABLED: new Set(['true', 'false']),
 }
 
 const IDENTIFIER_KEYS = new Set(['ASR_BACKEND', 'TTS_BACKEND'])

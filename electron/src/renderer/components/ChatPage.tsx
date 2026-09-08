@@ -35,6 +35,7 @@ interface Props {
   connected: boolean
   renderActive: boolean       // false=VTS, true=PixiJS
   renderAssetUrl: string      // URL served by backend AssetServer
+  dockMode?: boolean
 }
 
 interface VisualAttachment {
@@ -166,7 +167,7 @@ async function prepareImageAttachment(file: File): Promise<VisualAttachment> {
   }
 }
 
-export default function ChatPage({ send, subscribe, connected, renderActive, renderAssetUrl }: Props) {
+export default function ChatPage({ send, subscribe, connected, renderActive, renderAssetUrl, dockMode = false }: Props) {
   const [messages, setMessages] = useState<Message[]>([])
   const [chatTranslationEnabled, setChatTranslationEnabled] = useState(false)
   const [chatTranslations, setChatTranslations] = useState<Record<string, string>>({})
@@ -1209,7 +1210,7 @@ export default function ChatPage({ send, subscribe, connected, renderActive, ren
   /* Chat panel (right side) */
   const chatPanel = (
     <div
-      className="flex min-w-0"
+      className={`chat-panel-layout flex min-w-0 ${dockMode ? 'chat-panel-dock-layout' : ''}`}
       style={{
         minWidth: renderActive ? CHAT_PANEL_MIN_W : 0,
         width: renderActive ? chatWidth : '100%',
@@ -1232,6 +1233,7 @@ export default function ChatPage({ send, subscribe, connected, renderActive, ren
         projects={projects}
         activeId={activeSession}
         artifactViewId={projectViewId === DRAFT_APPS_VIEW_ID ? 'drafts' : projectViewId}
+        forceOpen={dockMode}
         onSelect={id => { setProjectViewId(''); void loadSession(id) }}
         onNew={() => { setProjectViewId(''); void handleNewSession() }}
         onNewProject={() => { void handleNewProject() }}

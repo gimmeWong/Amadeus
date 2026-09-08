@@ -79,6 +79,15 @@ export declare global {
     closeElectronSlice: () => Promise<boolean>
     openAuipApp: (launchUrl: string, hostSurfaceId?: string, workItemId?: string) => Promise<{ ok: boolean; detail: string }>
     closeAuipApp: (hostSurfaceId: string, appSessionId?: string) => Promise<{ ok: boolean; status: string; detail: string }>
+    openWorkOverlay: () => Promise<boolean>
+    minimizeWorkOverlay: () => Promise<boolean>
+    closeWorkOverlay: () => Promise<boolean>
+    openChatOverlay: () => Promise<boolean>
+    minimizeChatOverlay: () => Promise<boolean>
+    closeChatOverlay: () => Promise<boolean>
+    setWorkOverlayMouseIgnore: (ignore: boolean) => Promise<boolean>
+    setWorkOverlayPanelBounds: (bounds: { x: number; y: number; width: number; height: number }) => Promise<boolean>
+    setWorkOverlayHitRegions: (bounds: Array<{ x: number; y: number; width: number; height: number }>) => Promise<boolean>
     openWorkPreview: (descriptor: Record<string, unknown>) => Promise<WorkPreviewIpcResult>
     updateWorkPreview: (descriptor: Record<string, unknown>) => Promise<WorkPreviewIpcResult>
     getWorkPreview: (previewId: string) => Promise<WorkPreviewIpcResult>
