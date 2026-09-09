@@ -218,7 +218,10 @@ function getPythonCommand(): string {
 
   // 1. Check project root and original repo for venvs
   const roots = [PROJECT_ROOT, originalRepo].filter(Boolean) as string[]
-  const venvNames = ['.venv']
+  // `.venv` is the maintained profile name. Keep the older cu124 checkout
+  // name as a local compatibility fallback so existing installs do not fall
+  // through to the unavailable `python3` command on Windows.
+  const venvNames = ['.venv', '.venv_cu124']
   const venvPaths: string[] = []
   for (const root of roots) {
     for (const name of venvNames) {

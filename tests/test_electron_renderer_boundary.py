@@ -40,3 +40,10 @@ def test_desktop_ipc_matches_the_renderer_that_actually_owns_each_surface() -> N
         in source
     )
     assert source.count("if (!isPrimaryDesktopRenderer(event.sender)) {") == 2
+
+
+def test_python_launcher_accepts_legacy_cu124_environment_name() -> None:
+    source = _main_source()
+
+    assert "const venvNames = ['.venv', '.venv_cu124']" in source
+    assert "return 'python3'" in source
