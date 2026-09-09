@@ -121,6 +121,15 @@ class WallpaperHandler(RequestHandler):
             self._apply_attention_snapshot()
             self._wallpaper_animator = SpriteForgeAnimator(self._wallpaper_host)
             self._wallpaper_animator.start()
+            # A restarted Wallpaper host has fresh bootstrap state. Replay the
+            # canonical render signal bridge after the host is registered so
+            # its new SSE client receives the current graph, pose, speech,
+            # mouth, and subtitle state instead of starting from idle.
+            replay = getattr(self._render_bridge, "replay_all", None)
+            if callable(replay):
+                result = replay()
+                if hasattr(result, "__await__"):
+                    await result
             payload = self._status("started")
             await bus.emit(Method.WALLPAPER_READY, payload)
             if WAKE_ENABLED and WAKE_AUTO_START_WITH_WALLPAPER and self._wake_start_fn:

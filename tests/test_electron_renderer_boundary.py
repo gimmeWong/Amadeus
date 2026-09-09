@@ -25,6 +25,7 @@ def test_owned_renderer_shells_refuse_external_navigation() -> None:
     assert "guardTrustedRendererShell(mainWindow)" in source
     assert "guardTrustedRendererShell(workPanelWindow)" in source
     assert "guardTrustedRendererShell(workGlowWindow)" in source
+    assert "guardTrustedRendererShell(chatPanelWindow)" in source
 
 
 def test_desktop_ipc_matches_the_renderer_that_actually_owns_each_surface() -> None:
@@ -32,5 +33,10 @@ def test_desktop_ipc_matches_the_renderer_that_actually_owns_each_surface() -> N
 
     assert "if (!isMainRenderer(event.sender)) return false" in source
     assert "if (!isPrimaryDesktopRenderer(event.sender)) return false" in source
-    assert source.count("if (!isWorkPanelRenderer(event.sender)) return false") == 3
+    assert source.count("if (!isWorkPanelRenderer(event.sender)) return false") == 4
+    assert source.count("if (!isChatPanelRenderer(event.sender)) return false") == 1
+    assert (
+        "if (!isMainRenderer(event.sender) && !isChatPanelRenderer(event.sender)) return false"
+        in source
+    )
     assert source.count("if (!isPrimaryDesktopRenderer(event.sender)) {") == 2

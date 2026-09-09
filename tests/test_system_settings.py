@@ -259,6 +259,23 @@ def test_mimo_desktop_settings_persist_values_and_encrypt_the_key() -> None:
     assert "'MIMO_TTS_API_KEY'" in secret_block
 
 
+def test_runtime_presentation_settings_are_persisted_by_electron() -> None:
+    root = Path(__file__).resolve().parents[1]
+    desktop_source = (root / "electron" / "src" / "main" / "desktopSettings.ts").read_text(
+        encoding="utf-8"
+    )
+    settings_source = (root / "electron" / "src" / "renderer" / "components" / "SettingsPage.tsx").read_text(
+        encoding="utf-8"
+    )
+    keys = (
+        "AMADEUS_PRESENTATION_LOCALE",
+        "AMADEUS_WALLPAPER_CAPTION_MODE",
+        "AMADEUS_CHAT_TRANSLATION_SUBTITLES_ENABLED",
+    )
+    assert all(f"'{key}'" in desktop_source for key in keys)
+    assert all(f"'{key}'" in settings_source for key in keys)
+
+
 def test_voice_settings_publish_microphone_choices_without_recording_audio() -> None:
     import pytest
 

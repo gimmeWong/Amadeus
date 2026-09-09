@@ -1263,9 +1263,33 @@ export default function WorkPage({ send, subscribe, connected }: WorkPageProps) 
         <div className="crt-scanlines" />
         <div className="crt-projection-content" ref={projectionPanelRef}>
           <header className="crt-topbar" onPointerDown={startSlicePanelDrag}>
-            <span>AMADEUS AI WORK INTERFACE</span>
+            <span>{panelWindow ? 'AMADEUS WORK DOCK' : 'AMADEUS AI WORK INTERFACE'}</span>
             <span className="crt-topbar-right">
               {connected ? 'ACTIVE SESSION' : 'BACKEND OFFLINE'} <span className="crt-dot" /> {new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+              {panelWindow && (
+                <span className="crt-window-actions">
+                  <button
+                    type="button"
+                    className="crt-window-action"
+                    title="Minimize Work Dock"
+                    aria-label="Minimize Work Dock"
+                    onPointerDown={event => event.stopPropagation()}
+                    onClick={() => { void window.amadeus?.minimizeWorkOverlay?.() }}
+                  >
+                    <span className="crt-window-minimize-glyph" />
+                  </button>
+                  <button
+                    type="button"
+                    className="crt-window-action close"
+                    title="Close Work Dock"
+                    aria-label="Close Work Dock"
+                    onPointerDown={event => event.stopPropagation()}
+                    onClick={() => { void window.amadeus?.closeWorkOverlay?.() }}
+                  >
+                    <span className="crt-window-close-glyph" />
+                  </button>
+                </span>
+              )}
             </span>
           </header>
 

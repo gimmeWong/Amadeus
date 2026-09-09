@@ -36,6 +36,57 @@
       var assetPort = normalizePort(params.get("assetPort"));
       var bridgePort = normalizePort(params.get("bridgePort"));
       var sliceHost = params.get("sliceHost") === "electron" ? "electron" : "";
+      var currentBridgeSignature = "";
+      var frame = document.getElementById("amadeus-wallpaper");
+      var frameGeneration = 0;
+
+      function loadFrame(reason) {
+        if (!assetPort || !bridgePort) return;
+        frameGeneration += 1;
+        var frameUrl = "http://127.0.0.1:" + assetPort +
+          "/render/web/wallpaper_engine.html?bridgePort=" + bridgePort +
+          "&host=lively";
+        var bridgeToken = String(window.__amadeusLivelyBridgeToken || "");
+        if (bridgeToken) {
+          frameUrl += "&frameGeneration=" + frameGeneration +
+            "&bridgeSession=" + encodeURIComponent(bridgeToken);
+        }
+        if (sliceHost) frameUrl += "&sliceHost=" + encodeURIComponent(sliceHost);
+        frame.src = frameUrl;
+      }
+
+      function applyBridgeInfo(info) {
+        var nextAssetPort = normalizePort(info && info.assetPort) || assetPort;
+        var nextBridgePort = normalizePort(info && info.bridgePort) || bridgePort;
+        var nextSliceHost = info && info.sliceHost === "electron" ? "electron" : sliceHost;
+        var bridgeToken = String(info && info.bridgeToken || "");
+        if (!nextAssetPort || !nextBridgePort) return false;
+
+        var signature = nextAssetPort + ":" + nextBridgePort + ":" + bridgeToken + ":" + nextSliceHost;
+        assetPort = nextAssetPort;
+        bridgePort = nextBridgePort;
+        sliceHost = nextSliceHost;
+        if (signature === currentBridgeSignature) return true;
+
+        currentBridgeSignature = signature;
+        window.__amadeusLivelyBridgeToken = bridgeToken;
+        loadFrame("bridge_changed");
+        return true;
+      }
+
+      async function pollBridgeInfo() {
+        try {
+          var response = await fetch(
+            window.location.origin + "/wallpaper/bridge-info",
+            { cache: "no-store" }
+          );
+          if (!response.ok) return;
+          applyBridgeInfo(await response.json());
+        } catch (error) {
+          // Manual-off is healthy. Keep the last frame visible until a new
+          // Wallpaper host advertises its fresh bridge session.
+        }
+      }
 
       // This wrapper can be served either by the backend (normally 17777) or
       // by the dedicated asset server (normally 17778+).  Discover the
@@ -55,6 +106,7 @@
             assetPort = assetPort || normalizePort(info.assetPort);
             bridgePort = bridgePort || normalizePort(info.bridgePort);
             if (info.sliceHost === "electron") sliceHost = "electron";
+            applyBridgeInfo(info);
           }
         } catch (error) {
           if (!discoveryWarningLogged) {
@@ -72,11 +124,9 @@
         }
       }
 
-      var url = "http://127.0.0.1:" + assetPort +
-        "/render/web/wallpaper_engine.html?bridgePort=" + bridgePort +
-        "&host=lively";
-      if (sliceHost) url += "&sliceHost=" + encodeURIComponent(sliceHost);
-      document.getElementById("amadeus-wallpaper").src = url;
+      if (typeof window.setInterval === "function") {
+        window.setInterval(pollBridgeInfo, 1000);
+      }
     })();
   </script>
 </body>

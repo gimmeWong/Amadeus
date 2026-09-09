@@ -112,6 +112,30 @@ def test_electron_slice_uses_normalized_crt_geometry_and_shared_canvas_channel()
     assert host.lively_url.endswith("&bridgePort=17797&sliceHost=electron")
 
 
+def test_replay_snapshot_excludes_bootstrap_assets() -> None:
+    state = wallpaper_engine_bridge._BridgeState()
+    bootstrap = {"method": "loadSpriteFrames", "args": ["idle", ["frame.png"]], "t": 1.0}
+    subtitle = {"method": "setSubtitle", "args": ["visible"], "t": 2.0}
+    state.add_bootstrap(bootstrap, key="loadSpriteFrames:idle")
+    state.publish(subtitle, replay="subtitle")
+
+    assert state.snapshot()["calls"] == [bootstrap, subtitle]
+    assert state.snapshot(replay_only=True)["calls"] == [subtitle]
+
+
+def test_replay_recovery_tracks_each_runtime_slot_independently() -> None:
+    bridge = (_PROJECT_ROOT / "render" / "web" / "wallpaper_engine_bridge.js").read_text(
+        encoding="utf-8"
+    )
+
+    # A later mouth event must not make the client discard an earlier subtitle
+    # event from the same snapshot after Lively reconnects.
+    assert "_lastAppliedRecoveryTime" in bridge
+    assert "recoverySlot(call)" in bridge
+    assert "setSubtitle: true" in bridge
+    assert "state?replay=1" in bridge
+
+
 def test_electron_slice_encloses_the_separate_input_toggle_and_composer() -> None:
     config = {
         "img_size": [1000, 500],

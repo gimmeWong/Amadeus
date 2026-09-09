@@ -1,0 +1,47 @@
+#!/bin/sh
+set -eu
+
+remote_name=${1:-}
+remote_url=${2:-}
+
+case "$remote_name" in
+  upstream)
+    echo "Blocked: pushing to upstream is disabled ($remote_url). Push only to origin." >&2
+    exit 1
+    ;;
+esac
+
+while read -r local_ref local_sha remote_ref remote_sha; do
+  [ -n "$local_ref" ] || continue
+  case "$local_ref" in
+    refs/heads/main)
+      case "$remote_name" in
+        origin) ;;
+        *)
+          echo "Blocked: main and personal/main may only be pushed to origin, not '$remote_name'." >&2
+          exit 1
+          ;;
+      esac
+      ;;
+    refs/heads/personal/main)
+      case "$remote_name" in
+        origin) ;;
+        *)
+          echo "Blocked: main and personal/main may only be pushed to origin, not '$remote_name'." >&2
+          exit 1
+          ;;
+      esac
+
+      if [ "${AMADEUS_PERSONAL_PROMOTION:-}" != "1" ]; then
+        echo "Blocked: personal/main must be updated through scripts/promote_personal_main.ps1." >&2
+        echo "The promotion workflow synchronizes main, merges completed work, tests it, and then pushes." >&2
+        exit 1
+      fi
+
+      if ! git merge-base --is-ancestor refs/heads/main "$local_sha"; then
+        echo "Blocked: personal/main does not contain the current local main." >&2
+        exit 1
+      fi
+      ;;
+  esac
+done

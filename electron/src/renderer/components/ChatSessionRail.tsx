@@ -37,6 +37,7 @@ interface Props {
   projects: ChatProjectSummary[]
   activeId: string | null
   artifactViewId: string
+  forceOpen?: boolean
   onSelect: (id: string) => void
   onNew: () => void
   onNewProject: () => void
@@ -160,6 +161,7 @@ export default function ChatSessionRail({
   projects,
   activeId,
   artifactViewId,
+  forceOpen = false,
   onSelect,
   onNew,
   onNewProject,
@@ -220,7 +222,7 @@ export default function ChatSessionRail({
     if (!active) return ''
     return active.context?.projectId ? `project:${active.context.projectId}` : 'drafts'
   }, [activeId, sessions])
-  const railOpen = railHovered || railFocused
+  const railOpen = forceOpen || railHovered || railFocused
 
   const draftGroup = useMemo<SessionGroup>(() => ({
     id: 'drafts',
@@ -342,7 +344,7 @@ export default function ChatSessionRail({
       className="shrink-0"
       aria-label="Chat history"
       style={{
-        width: 44,
+        width: forceOpen ? 206 : 44,
         position: 'relative',
         overflow: 'visible',
         zIndex: 8,

@@ -47,6 +47,8 @@ class SubtitleHooks:
     StreamPlayerWithBuffer 所需的字幕 / 翻译回调。
     main.py 在构造 StreamPlayerWithBuffer 时传入。
     """
+    # sync fn(sentence_id, japanese_text) -> None
+    begin_subtitle_display: Callable[[str, str], None] | None = None
     # async fn(sentence_id, japanese_text) -> None
     check_and_display_pre_translation: Callable[..., Coroutine] | None = None
     # async fn(sentence_id, japanese_text, chinese_text) -> None
@@ -687,6 +689,11 @@ class PlaybackManager:
 
     def _mark_sentence_complete(self, sentence_id: str | None) -> None:
         sentence_id = str(sentence_id or "")
+        was_active = (
+            sentence_id == self.current_playing_id
+            or sentence_id in self._current_playing_segment_ids
+        )
+        self._current_playing_segment_ids.discard(sentence_id)
         if not sentence_id or sentence_id in self._turn_completed_sentence_ids:
             return
         text = self._turn_sentence_texts.get(sentence_id, "")
@@ -704,6 +711,8 @@ class PlaybackManager:
                 self.on_sentence_complete(sentence_id, text)
             except Exception as exc:
                 self.logger.warning("on_sentence_complete callback error: %s", exc)
+        if was_active and not self._current_playing_segment_ids:
+            self.current_playing_id = None
 
     def _mark_current_audio_complete(self, primary_id: str | None) -> None:
         """Close every logical sentence carried by one physical audio item."""
@@ -872,8 +881,11 @@ class PlaybackManager:
 
             # ── 字幕 / 预翻译 ─────────────────────────────────────────────
             hooks = self.player._hooks
-            if hooks.subtitle_available and hooks.update_subtitle_display:
-                hooks.update_subtitle_display(japanese_text, "")
+            if hooks.subtitle_available:
+                if hooks.begin_subtitle_display:
+                    hooks.begin_subtitle_display(sentence_id, japanese_text)
+                elif hooks.update_subtitle_display:
+                    hooks.update_subtitle_display(japanese_text, "")
             if hooks.check_and_display_pre_translation:
                 asyncio.create_task(
                     hooks.check_and_display_pre_translation(sentence_id, japanese_text)
@@ -1130,8 +1142,11 @@ class PlaybackManager:
         if not sentence_id or not text:
             return
         hooks = self.player._hooks
-        if hooks.subtitle_available and hooks.update_subtitle_display:
-            hooks.update_subtitle_display(text, "")
+        if hooks.subtitle_available:
+            if hooks.begin_subtitle_display:
+                hooks.begin_subtitle_display(sentence_id, text)
+            elif hooks.update_subtitle_display:
+                hooks.update_subtitle_display(text, "")
         if hooks.check_and_display_pre_translation:
             asyncio.create_task(
                 hooks.check_and_display_pre_translation(sentence_id, text)
@@ -1361,8 +1376,11 @@ class StreamPlayerWithBuffer(StreamPlayer):
                 if isinstance(first_segment, dict):
                     subtitle_sentence_id = str(first_segment.get("sentence_id") or sentence_id)
                     subtitle_text = str(first_segment.get("text") or japanese_text)
-            if hooks.subtitle_available and hooks.update_subtitle_display:
-                hooks.update_subtitle_display(subtitle_text, "")
+            if hooks.subtitle_available:
+                if hooks.begin_subtitle_display:
+                    hooks.begin_subtitle_display(subtitle_sentence_id, subtitle_text)
+                elif hooks.update_subtitle_display:
+                    hooks.update_subtitle_display(subtitle_text, "")
             if hooks.check_and_display_pre_translation:
                 asyncio.create_task(
                     hooks.check_and_display_pre_translation(subtitle_sentence_id, subtitle_text)
@@ -1463,8 +1481,11 @@ class StreamPlayerWithBuffer(StreamPlayer):
             aec_capture.start(sentence_id)
 
             hooks = self._hooks
-            if hooks.subtitle_available and hooks.update_subtitle_display:
-                hooks.update_subtitle_display(japanese_text, "")
+            if hooks.subtitle_available:
+                if hooks.begin_subtitle_display:
+                    hooks.begin_subtitle_display(sentence_id, japanese_text)
+                elif hooks.update_subtitle_display:
+                    hooks.update_subtitle_display(japanese_text, "")
             if hooks.check_and_display_pre_translation:
                 asyncio.create_task(
                     hooks.check_and_display_pre_translation(sentence_id, japanese_text)
@@ -1701,8 +1722,11 @@ class StreamPlayerWithBuffer(StreamPlayer):
                     self._current_playing_sentence = self._pending_subtitle_text
                     allow_update = True
 
-                if allow_update and hooks.subtitle_available and hooks.update_subtitle_display:
-                    hooks.update_subtitle_display(self._pending_subtitle_text, "")
+                if allow_update and hooks.subtitle_available:
+                    if hooks.begin_subtitle_display:
+                        hooks.begin_subtitle_display(pending_sid, self._pending_subtitle_text)
+                    elif hooks.update_subtitle_display:
+                        hooks.update_subtitle_display(self._pending_subtitle_text, "")
                     logger.info(
                         f"[Subtitle] displayed: '{self._pending_subtitle_text[:30]}...'"
                     )

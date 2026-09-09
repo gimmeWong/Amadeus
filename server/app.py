@@ -663,11 +663,18 @@ async def bootstrap(port: int = 17777) -> None:
     from tts.playback import StreamPlayerWithBuffer as _SPB, PlaybackManager as _PM, SubtitleHooks as _SH
     from server import presentation_runtime, wallpaper_subtitle_runtime
 
-    def _update_wallpaper_subtitle(japanese_text: str, chinese_text: str = "") -> None:
+    def _begin_wallpaper_subtitle(sentence_id: str, japanese_text: str = "") -> None:
+        wallpaper_subtitle_runtime.begin(sentence_id, japanese_text)
+
+    def _update_wallpaper_subtitle(
+        japanese_text: str,
+        chinese_text: str = "",
+        sentence_id: str | None = None,
+    ) -> None:
         # Wallpaper subtitles are a display layer. Chat bubbles and chat memory
         # keep the original assistant text; only this surface can switch
         # between Japanese, Chinese, bilingual, or hidden captions.
-        wallpaper_subtitle_runtime.update(japanese_text, chinese_text)
+        wallpaper_subtitle_runtime.update(japanese_text, chinese_text, sentence_id)
 
     wallpaper_subtitle_runtime.set_renderer(lambda text: wallpaper_h.set_subtitle(text))
     presentation_runtime.set_renderer(
@@ -695,9 +702,7 @@ async def bootstrap(port: int = 17777) -> None:
                 checker = getattr(playback_manager, "is_current_playback_sentence", None)
                 if callable(checker):
                     is_current_sentence = bool(checker(sentence_id))
-            if (is_vn_sentence and not is_current_sentence) or (
-                not is_vn_sentence and current_id and not is_current_sentence
-            ):
+            if not is_current_sentence:
                 logger.info(
                     "skip subtitle update for stale sentence: playing=%s incoming=%s",
                     current_id,
@@ -707,7 +712,7 @@ async def bootstrap(port: int = 17777) -> None:
         except Exception:
             logger.debug("subtitle current sentence guard failed", exc_info=True)
         if is_vn_sentence:
-            _update_wallpaper_subtitle(japanese_text, chinese_text)
+            _update_wallpaper_subtitle(japanese_text, chinese_text, sentence_id)
             try:
                 from server.vn_tts_bridge import publish_overlay_subtitle
 
@@ -719,7 +724,7 @@ async def bootstrap(port: int = 17777) -> None:
             except Exception:
                 logger.exception("server subtitle emit failed")
             return
-        _update_wallpaper_subtitle(japanese_text, chinese_text)
+        _update_wallpaper_subtitle(japanese_text, chinese_text, sentence_id)
         try:
             from server.vn_tts_bridge import publish_overlay_subtitle
 
@@ -779,7 +784,7 @@ async def bootstrap(port: int = 17777) -> None:
                     str(cached.get("chinese") or ""),
                 )
             else:
-                _update_wallpaper_subtitle(japanese_text, "")
+                _update_wallpaper_subtitle(japanese_text, "", sentence_id)
                 async def _wait_for_translation() -> None:
                     for _ in range(120):
                         await asyncio.sleep(0.1)
@@ -801,6 +806,7 @@ async def bootstrap(port: int = 17777) -> None:
     player = _SPB(
         mouth_signal_router,
         hooks=_SH(
+            begin_subtitle_display=_begin_wallpaper_subtitle,
             check_and_display_pre_translation=_server_check_and_display_pre_translation,
             display_chinese_subtitle_with_text=_server_display_chinese_subtitle_with_text,
             get_translation=None,
@@ -951,6 +957,7 @@ async def bootstrap(port: int = 17777) -> None:
             logger.exception("failed to start barge-in detector")
 
     def _on_sentence_start(sentence_id: str) -> None:
+        wallpaper_subtitle_runtime.begin(sentence_id)
         _expr_ctrl.on_sentence_start(sentence_id)
         try:
             from server.character_presentation import playback_bridge
@@ -967,6 +974,7 @@ async def bootstrap(port: int = 17777) -> None:
     playback_manager.on_sentence_start = _on_sentence_start
 
     def _on_sentence_complete(sentence_id: str, _text: str) -> None:
+        wallpaper_subtitle_runtime.clear(sentence_id)
         try:
             from server.character_presentation import playback_bridge
 
@@ -977,6 +985,7 @@ async def bootstrap(port: int = 17777) -> None:
     playback_manager.on_sentence_complete = _on_sentence_complete
 
     def _on_turn_playback_complete() -> None:
+        wallpaper_subtitle_runtime.clear()
         logger.info("turn playback complete; notifying ASR")
         try:
             barge_in_detector.stop()
@@ -1023,24 +1032,43 @@ async def bootstrap(port: int = 17777) -> None:
         def trigger_expression(self, expression_label: str) -> None:
             from server.character_presentation import coordinator as character_presentation
 
-            character_presentation.claim_now(
+            transition = character_presentation.claim_now(
                 source_kind="main_chat",
                 source_id="active-expression",
                 label=str(expression_label or ""),
                 tier="utterance",
             )
+            if transition is not None:
+                remember = getattr(self.engine, "remember_spriteforge_intent", None)
+                if callable(remember):
+                    remember(
+                        str(transition.payload.get("label") or ""),
+                        dict(transition.payload),
+                    )
 
         def on_speaking(self, speaking: bool) -> None:
             self.engine.set_speaking(bool(speaking))
             if not speaking:
                 from server.character_presentation import coordinator as character_presentation
 
-                character_presentation.release_now(
+                transition = character_presentation.release_now(
                     source_kind="main_chat",
                     source_id="active-expression",
                     tier="utterance",
                     handoff="after_speech",
                 )
+                if transition is not None:
+                    if transition.method == Method.RENDER_SPRITEFORGE_RELEASE:
+                        remember = getattr(self.engine, "remember_spriteforge_release", None)
+                        if callable(remember):
+                            remember()
+                    else:
+                        remember = getattr(self.engine, "remember_spriteforge_intent", None)
+                        if callable(remember):
+                            remember(
+                                str(transition.payload.get("label") or ""),
+                                dict(transition.payload),
+                            )
 
         def set_mouth_value(self, value: float) -> None:
             self.engine.set_mouth_value(value)
@@ -1048,11 +1076,23 @@ async def bootstrap(port: int = 17777) -> None:
         def stop(self) -> None:
             from server.character_presentation import coordinator as character_presentation
 
-            character_presentation.release_now(
+            transition = character_presentation.release_now(
                 source_kind="main_chat",
                 source_id="active-expression",
                 tier="utterance",
             )
+            if transition is not None:
+                if transition.method == Method.RENDER_SPRITEFORGE_RELEASE:
+                    remember = getattr(self.engine, "remember_spriteforge_release", None)
+                    if callable(remember):
+                        remember()
+                else:
+                    remember = getattr(self.engine, "remember_spriteforge_intent", None)
+                    if callable(remember):
+                        remember(
+                            str(transition.payload.get("label") or ""),
+                            dict(transition.payload),
+                        )
             self.engine.set_speaking(False)
             self.engine.set_mouth_value(0.0)
 
@@ -1408,6 +1448,7 @@ async def bootstrap(port: int = 17777) -> None:
         await _send_wake_text(str(payload.get("text") or ""), source="wake bridge")
 
     async def _handle_tts_interrupt(payload: dict) -> None:
+        wallpaper_subtitle_runtime.clear()
         try:
             from server.character_presentation import playback_bridge
 

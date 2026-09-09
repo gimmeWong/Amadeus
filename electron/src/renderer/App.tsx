@@ -30,6 +30,7 @@ function AmadeusApp() {
   const searchParams = new URLSearchParams(window.location.search)
   const desktopProjection = searchParams.get('desktopProjection') === '1'
   const panelWindow = searchParams.get('panelWindow') === '1'
+  const chatPanelWindow = searchParams.get('chatPanelWindow') === '1'
   const glowWindow = searchParams.get('glowWindow') === '1'
   const [page, setPage] = useState<Page>(() => initialPage())
   const [renderActive, setRenderActive] = useState(false)  // false=VTS, true=PixiJS
@@ -63,6 +64,8 @@ function AmadeusApp() {
     document.body.classList.toggle('desktop-work-glow-window', glowWindow)
     document.documentElement.classList.toggle('desktop-work-slice-window', panelWindow)
     document.body.classList.toggle('desktop-work-slice-window', panelWindow)
+    document.documentElement.classList.toggle('desktop-chat-window', chatPanelWindow)
+    document.body.classList.toggle('desktop-chat-window', chatPanelWindow)
     return () => {
       document.documentElement.classList.remove('desktop-work-overlay')
       document.body.classList.remove('desktop-work-overlay')
@@ -70,8 +73,10 @@ function AmadeusApp() {
       document.body.classList.remove('desktop-work-glow-window')
       document.documentElement.classList.remove('desktop-work-slice-window')
       document.body.classList.remove('desktop-work-slice-window')
+      document.documentElement.classList.remove('desktop-chat-window')
+      document.body.classList.remove('desktop-chat-window')
     }
-  }, [desktopProjection, glowWindow, panelWindow])
+  }, [chatPanelWindow, desktopProjection, glowWindow, panelWindow])
 
   // Toggle the supported VTS/PixiJS render projection.
   const handleToggleRender = useCallback(async () => {
@@ -80,10 +85,9 @@ function AmadeusApp() {
     setPage('chat')
 
     if (next) {
-      if (wallpaperActive) {
-        try { await send('wallpaper.stop', {}) } catch {}
-        setWallpaperActive(false)
-      }
+      // Keep the external Wallpaper host alive while Render is active. This
+      // isolates the surface-lifecycle behavior from later character-routing
+      // decisions: Lively must not lose its iframe asset origin on a switch.
       // Start PixiJS render mode
       const backend = 'graph'
       send('expression.set_backend', { backend }).catch(() => {})
@@ -93,9 +97,10 @@ function AmadeusApp() {
         if (res?.url) setRenderAssetUrl(String(res.url))
       } catch { /* AssetServer might already be running */ }
     } else {
-      // Switch back to VTS
-      send('expression.set_backend', { backend: 'vts' }).catch(() => {})
       send('render.stop', {}).catch(() => {})
+      // Wallpaper and Render share the graph expression signal stream. Only
+      // return to VTS when no local Pixi/SpriteForge surface remains active.
+      send('expression.set_backend', { backend: wallpaperActive ? 'graph' : 'vts' }).catch(() => {})
       setRenderAssetUrl('')
     }
   }, [send, renderActive, wallpaperActive])
@@ -108,11 +113,11 @@ function AmadeusApp() {
 
     if (next) {
       if (renderActive) {
-        send('expression.set_backend', { backend: 'vts' }).catch(() => {})
         try { await send('render.stop', {}) } catch {}
         setRenderActive(false)
         setRenderAssetUrl('')
       }
+      send('expression.set_backend', { backend: 'graph' }).catch(() => {})
       try {
         const res = await send('wallpaper.start', ELECTRON_SLICE_START_PARAMS)
         if (res?.status === 'error') setWallpaperActive(false)   // 失败回退
@@ -123,6 +128,7 @@ function AmadeusApp() {
     } else {
       try { await send('wallpaper.stop', {}) } catch {}
       await window.amadeus?.closeElectronSlice()
+      send('expression.set_backend', { backend: renderActive ? 'graph' : 'vts' }).catch(() => {})
       setWallpaperActive(false)
     }
   }, [wallpaperActive, renderActive, send])
@@ -255,6 +261,27 @@ function AmadeusApp() {
     return <div className="work-glow-window" />
   }
 
+  if (chatPanelWindow) {
+    return (
+      <div className="chat-dock-shell">
+        <header className="chat-dock-titlebar">
+          <div className="chat-dock-heading">
+            <span className="chat-dock-eyebrow">RESULT / CHAT</span>
+            <strong>Amadeus conversation</strong>
+          </div>
+          <span className="chat-dock-actions">
+            <span className="chat-dock-live-status"><span className="chat-dock-live-dot" /> LIVE</span>
+            <button type="button" title="Minimize Chat Dock" aria-label="Minimize Chat Dock" onClick={() => { void window.amadeus?.minimizeChatOverlay?.() }}><span className="chat-dock-minimize-glyph" /></button>
+            <button type="button" className="close" title="Close Chat Dock" aria-label="Close Chat Dock" onClick={() => { void window.amadeus?.closeChatOverlay?.() }}><span className="chat-dock-close-glyph" /></button>
+          </span>
+        </header>
+        <div className="chat-dock-page">
+          <ChatPage send={send} subscribe={subscribe} connected={connected} renderActive={false} renderAssetUrl="" dockMode />
+        </div>
+      </div>
+    )
+  }
+
   if (desktopProjection) {
     return <WorkPage send={send} subscribe={subscribe} connected={connected} />
   }
@@ -265,6 +292,7 @@ function AmadeusApp() {
         page={page} onNavigate={handleNavigate}
         renderActive={renderActive} wallpaperActive={wallpaperActive}
         onToggleRender={handleToggleRender} onToggleWallpaper={handleToggleWallpaper}
+        onOpenChatDock={() => { void window.amadeus?.openChatOverlay?.() }}
       />
       <div className="flex-1 flex flex-col min-w-0" style={{ backgroundColor: 'var(--bg)' }}>
         {page === 'chat' && <ChatPage send={send} subscribe={subscribe} connected={connected} renderActive={renderActive} renderAssetUrl={renderAssetUrl} />}

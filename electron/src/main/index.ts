@@ -62,6 +62,7 @@ const isDev = !app.isPackaged && process.env.NODE_ENV !== 'production'
 let mainWindow: BrowserWindow | null = null
 let workGlowWindow: BrowserWindow | null = null
 let workPanelWindow: BrowserWindow | null = null
+let chatPanelWindow: BrowserWindow | null = null
 let electronSliceWindow: BrowserWindow | null = null
 const electronCanvasLifecycle = new WallpaperCanvasLifecycle<BrowserWindow>({
   getCursorScreenPoint: () => screen.getCursorScreenPoint(),
@@ -958,6 +959,24 @@ function workSlicePanelBounds() {
   }
 }
 
+function chatOverlayUrl(): string {
+  const params = 'page=chat&chatPanelWindow=1'
+  if (isDev) return `http://localhost:5173?${params}`
+  return `file://${path.join(__dirname, '..', 'renderer', 'index.html')}?${params}`
+}
+
+function workDockBounds(): Electron.Rectangle {
+  const { x, y, width, height } = screen.getPrimaryDisplay().workArea
+  const dockWidth = Math.min(720, Math.max(560, Math.round(width * 0.34)))
+  const dockHeight = Math.min(820, Math.max(620, Math.round(height * 0.82)))
+  return {
+    x: Math.round(x + width - dockWidth - 28),
+    y: Math.round(y + 28),
+    width: dockWidth,
+    height: dockHeight,
+  }
+}
+
 function workOverlayActiveHitRegions(): Electron.Rectangle[] {
   const regions = workOverlayHitRegions.length > 0 ? workOverlayHitRegions : [workSlicePanelBounds()]
   return regions
@@ -1046,12 +1065,13 @@ function createWorkGlowWindow(): void {
 
 function createWorkPanelWindow(): void {
   if (workPanelWindow) {
+    if (workPanelWindow.isMinimized()) workPanelWindow.restore()
     workPanelWindow.show()
     workPanelWindow.focus()
     return
   }
 
-  const bounds = workSlicePanelBounds()
+  const bounds = workDockBounds()
   workPanelWindow = new BrowserWindow({
     ...bounds,
     title: '',
@@ -1066,7 +1086,7 @@ function createWorkPanelWindow(): void {
     movable: true,
     icon: getAppIconPath(),
     hasShadow: false,
-    skipTaskbar: true,
+    skipTaskbar: false,
     alwaysOnTop: false,
     autoHideMenuBar: true,
     webPreferences: {
@@ -1096,12 +1116,70 @@ function createWorkOverlayWindow(): void {
   createWorkPanelWindow()
 }
 
+function createChatPanelWindow(): void {
+  if (chatPanelWindow) {
+    if (chatPanelWindow.isMinimized()) chatPanelWindow.restore()
+    chatPanelWindow.show()
+    chatPanelWindow.focus()
+    return
+  }
+
+  const { x, y, width, height } = screen.getPrimaryDisplay().workArea
+  const dockWidth = Math.min(920, Math.max(760, Math.round(width * 0.44)))
+  const dockHeight = Math.min(860, Math.max(640, Math.round(height * 0.86)))
+  chatPanelWindow = new BrowserWindow({
+    x: Math.round(x + width - dockWidth - 28),
+    y: Math.round(y + 28),
+    width: dockWidth,
+    height: dockHeight,
+    title: 'Amadeus Chat Dock',
+    frame: false,
+    backgroundColor: '#00000000',
+    show: false,
+    paintWhenInitiallyHidden: true,
+    focusable: true,
+    fullscreenable: false,
+    resizable: true,
+    movable: true,
+    minWidth: 680,
+    minHeight: 560,
+    icon: getAppIconPath(),
+    hasShadow: true,
+    skipTaskbar: false,
+    alwaysOnTop: false,
+    autoHideMenuBar: true,
+    webPreferences: {
+      preload: path.join(__dirname, '..', 'preload', 'index.mjs'),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: false,
+      webSecurity: false,
+    },
+  })
+
+  chatPanelWindow.setMenuBarVisibility(false)
+  guardTrustedRendererShell(chatPanelWindow)
+  chatPanelWindow.loadURL(chatOverlayUrl()).catch(() => {
+    const p = path.join(__dirname, '..', 'renderer', 'index.html')
+    if (fs.existsSync(p)) chatPanelWindow?.loadFile(p, { query: { page: 'chat', chatPanelWindow: '1' } })
+  })
+  chatPanelWindow.once('ready-to-show', () => chatPanelWindow?.show())
+  chatPanelWindow.on('closed', () => {
+    chatPanelWindow = null
+  })
+}
+
 function closeWorkOverlayWindow(): void {
   stopWorkOverlayHitTest()
   workPanelWindow?.close()
   workPanelWindow = null
   workGlowWindow?.close()
   workGlowWindow = null
+}
+
+function closeChatPanelWindow(): void {
+  chatPanelWindow?.close()
+  chatPanelWindow = null
 }
 
 function recordValue(value: unknown): Record<string, unknown> {
@@ -1174,7 +1252,7 @@ function workPreviewPartitionToken(previewId: string): string {
 }
 
 function isTrustedAmadeusRenderer(sender: Electron.WebContents): boolean {
-  if (isPrimaryDesktopRenderer(sender)) return true
+  if (isPrimaryDesktopRenderer(sender) || isChatPanelRenderer(sender)) return true
   for (const surface of workPreviewSurfaces.values()) {
     if (surface.window.webContents === sender) return true
   }
@@ -1187,6 +1265,10 @@ function isMainRenderer(sender: Electron.WebContents): boolean {
 
 function isWorkPanelRenderer(sender: Electron.WebContents): boolean {
   return workPanelWindow?.webContents === sender
+}
+
+function isChatPanelRenderer(sender: Electron.WebContents): boolean {
+  return chatPanelWindow?.webContents === sender
 }
 
 function isPrimaryDesktopRenderer(sender: Electron.WebContents): boolean {
@@ -2401,9 +2483,31 @@ ipcMain.handle('work-overlay.open', (event) => {
   createWorkOverlayWindow()
   return true
 })
+ipcMain.handle('work-overlay.minimize', (event) => {
+  if (!isWorkPanelRenderer(event.sender)) return false
+  if (!workPanelWindow || workPanelWindow.isDestroyed()) return false
+  workPanelWindow.minimize()
+  return true
+})
 ipcMain.handle('work-overlay.close', (event) => {
   if (!isPrimaryDesktopRenderer(event.sender)) return false
   closeWorkOverlayWindow()
+  return true
+})
+ipcMain.handle('chat-overlay.open', (event) => {
+  if (!isMainRenderer(event.sender)) return false
+  createChatPanelWindow()
+  return true
+})
+ipcMain.handle('chat-overlay.minimize', (event) => {
+  if (!isChatPanelRenderer(event.sender)) return false
+  if (!chatPanelWindow || chatPanelWindow.isDestroyed()) return false
+  chatPanelWindow.minimize()
+  return true
+})
+ipcMain.handle('chat-overlay.close', (event) => {
+  if (!isMainRenderer(event.sender) && !isChatPanelRenderer(event.sender)) return false
+  closeChatPanelWindow()
   return true
 })
 ipcMain.handle('work-overlay.set-mouse-ignore', (event, ignore: boolean) => {
@@ -2486,6 +2590,7 @@ app.on('window-all-closed', () => {
 app.on('before-quit', (event) => {
   closeElectronSliceWindow()
   closeWorkOverlayWindow()
+  closeChatPanelWindow()
   closeAllWorkPreviewSurfaces()
   for (const appWindow of auipAppWindows) appWindow.close()
   auipAppWindows.clear()
