@@ -420,6 +420,42 @@ ASR_SPECULATIVE_END_MS = _int("ASR_SPECULATIVE_END_MS", 160)
 # 仅对本地首句链路（hybrid/hybrid2/hybrid3）生效——远程单链有计费与幂等成本。
 ASR_SPECULATIVE_LLM_START = _bool("ASR_SPECULATIVE_LLM_START", True)
 
+# Global PixiJS render budget shared by the chat and wallpaper surfaces.
+GRAPHICS_PROFILES = frozenset({"standard", "power_saving", "custom"})
+GRAPHICS_PROFILE = _str("GRAPHICS_PROFILE", "standard").strip().lower()
+RENDER_MAX_FPS = _int("RENDER_MAX_FPS", 30)
+RENDER_MAX_RESOLUTION = _float("RENDER_MAX_RESOLUTION", 1.5)
+RENDER_TEXTURE_SAMPLING = _bool("RENDER_TEXTURE_SAMPLING", False)
+
+
+def _resolve_graphics_profile(
+    profile: str,
+    custom_max_fps: int,
+    custom_max_resolution: float,
+) -> tuple[int, float | None]:
+    if profile not in GRAPHICS_PROFILES:
+        raise ValueError(
+            "GRAPHICS_PROFILE must be one of "
+            + ", ".join(sorted(GRAPHICS_PROFILES))
+            + f"; observed {profile!r}"
+        )
+    if not 10 <= custom_max_fps <= 240:
+        raise ValueError("RENDER_MAX_FPS must be between 10 and 240")
+    if not 0.25 <= custom_max_resolution <= 4.0:
+        raise ValueError("RENDER_MAX_RESOLUTION must be between 0.25 and 4.0")
+    if profile == "standard":
+        return 60, None
+    if profile == "power_saving":
+        return 30, 1.5
+    return custom_max_fps, custom_max_resolution
+
+
+RENDER_EFFECTIVE_MAX_FPS, RENDER_EFFECTIVE_MAX_RESOLUTION = _resolve_graphics_profile(
+    GRAPHICS_PROFILE,
+    RENDER_MAX_FPS,
+    RENDER_MAX_RESOLUTION,
+)
+
 # Wallpaper diagnostics. keyboard_sfx.gate is a high-frequency client-side
 # gate snapshot; keep it out of WARNING unless explicitly diagnosing SFX.
 WALLPAPER_SFX_GATE_LOG = _bool("WALLPAPER_SFX_GATE_LOG", False)
@@ -501,6 +537,33 @@ PROVIDER_RUN_EVENT_CAP = _int("PROVIDER_RUN_EVENT_CAP", 500)
 PROVIDER_WORK_HEARTBEAT_S = _int("PROVIDER_WORK_HEARTBEAT_S", 45)
 PROVIDER_WORK_QUIET_NOTICE_S = _int("PROVIDER_WORK_QUIET_NOTICE_S", 90)
 PROVIDER_WORK_QUIET_REPEAT_S = _int("PROVIDER_WORK_QUIET_REPEAT_S", 300)
+# Whole-instance routing selector. Keep both routing strategies and share their
+# execution/presentation facilities; false selects the original Chat authority
+# at restart. The JSON is a Host-authored ProviderRequirements contract, not a
+# capability inference.
+COOPERATIVE_CHAT_ENABLED = _bool("COOPERATIVE_CHAT_ENABLED", True)
+# Professional cooperative routing is the default. False selects basic cooperative
+# routing; the whole-instance selector above restores original Chat at restart.
+# A failed professional decision never falls back to a different route.
+COOPERATIVE_WORK_PLANNER_ENABLED = _bool("COOPERATIVE_WORK_PLANNER_ENABLED", True)
+# Optional model on the existing LLM backend; empty inherits the role model.
+COOPERATIVE_WORK_PLANNER_MODEL = _str("COOPERATIVE_WORK_PLANNER_MODEL", "").strip()
+COOPERATIVE_CHAT_PROVIDER = _str("COOPERATIVE_CHAT_PROVIDER", "codex").strip().lower()
+COOPERATIVE_CHAT_REQUIREMENTS_JSON = _str(
+    "COOPERATIVE_CHAT_REQUIREMENTS_JSON",
+    '{"task_kind":"general","workspace_access":"write",'
+    '"workspace_ownership":"caller","ownership":"managed","resume":"attach"}',
+)
+COOPERATIVE_CHAT_ADDITIONAL_REQUIREMENTS_JSON = _str(
+    "COOPERATIVE_CHAT_ADDITIONAL_REQUIREMENTS_JSON", "{}",
+)
+COOPERATIVE_CHAT_QUERY_TIMEOUT_S = _float("COOPERATIVE_CHAT_QUERY_TIMEOUT_S", 45.0)
+COOPERATIVE_CHAT_QUERY_MAX_TOKENS = _int("COOPERATIVE_CHAT_QUERY_MAX_TOKENS", 900)
+COOPERATIVE_CHAT_PERMISSION_POLICY = _str(
+    "COOPERATIVE_CHAT_PERMISSION_POLICY", "ask",
+).strip().lower()
+if COOPERATIVE_CHAT_PERMISSION_POLICY not in {"deny", "ask"}:
+    raise ValueError("COOPERATIVE_CHAT_PERMISSION_POLICY supports deny or ask")
 # Host-owned Project trust roots. Project/Scratch/focus routing and Host diff
 # inspection read only this setting; retired Provider settings cannot widen it.
 WORK_PROJECT_ALLOWLIST = _str("WORK_PROJECT_ALLOWLIST", "")
@@ -685,6 +748,12 @@ COMPOUND_CONTROL_SHADOW_ENABLED = _bool(
     "COMPOUND_CONTROL_SHADOW_ENABLED", False
 )
 
+# Observe how the existing Work/AUIP/Browser witnesses converge for one origin
+# turn.  This adds no planner call and owns no dispatch: it records immutable
+# provenance plus a read-only ShadowTurnDecision so cardinality and cross-axis
+# relations can be replayed before any production authority migration.
+TURN_DECISION_SHADOW_ENABLED = _bool("TURN_DECISION_SHADOW_ENABLED", True)
+
 # AUIP action existence has a source-local decision axis because an AppSession
 # is neither Provider Work nor a Project/WorkItem.  When enabled, the role
 # prompt no longer carries a duplicate AUIP tag contract: the role speaks
@@ -695,6 +764,9 @@ COMPOUND_CONTROL_SHADOW_ENABLED = _bool(
 # authority; setting the flag false restores the legacy inline-role proposal
 # for bounded rollback.
 AUIP_CONTROL_DECISION_ENABLED = _bool("AUIP_CONTROL_DECISION_ENABLED", True)
+
+# Generation preference; never restyles existing artifacts or overrides user design.
+AUIP_ARTIFACT_STYLE_ENABLED = _bool("AUIP_ARTIFACT_STYLE_ENABLED", True)
 
 # Resolve the entity of an already-proposed Project focus against complete
 # host catalogs.  Genuine ambiguity becomes a one-shot Slice selection before

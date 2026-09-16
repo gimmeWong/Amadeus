@@ -27,6 +27,32 @@ precedence, and records every setting declared through it. New startup
 configuration should use this boundary rather than calling `load_dotenv`
 again.
 
+## Graphics profiles
+
+`GRAPHICS_PROFILE` is the startup owner for the shared PixiJS render budget:
+
+- `standard` is the default and uses 60 FPS with the native device-pixel ratio.
+- `power_saving` uses 30 FPS and caps resolution at 1.5.
+- `custom` uses `RENDER_MAX_FPS` (10–240) and
+  `RENDER_MAX_RESOLUTION` (0.25–4.0).
+
+The parsed effective values are propagated to chat, Electron, Lively, and
+Wallpaper Engine render surfaces. A missing effective resolution limit means
+native DPR; it must not be serialized as zero, `NaN`, or the string `None`.
+Wallpaper Engine's valid general `fps` property is a runtime host constraint,
+so the renderer uses the lower of it and the project profile. Unsupported host
+values restore the project limit. This runtime constraint does not mutate the
+startup environment.
+
+`RENDER_TEXTURE_SAMPLING` is a separate experimental startup opt-in, defaulting
+to `false`. Off preserves full-frame loading and the pre-experiment playback
+clock/hold behavior, regardless of the selected graphics profile. On enables
+time-based texture sampling and its associated clock corrections against that
+same effective FPS budget. It reaches chat, web wallpaper, Lively and the macOS
+Electron scene through the existing render descriptors/URLs. It does not add
+another FPS setting. Restart the backend and recreate the render surface after
+changing it; texture selection is fixed for that surface lifetime.
+
 ## What belongs where
 
 - Credentials, model paths, ports, startup feature flags: `.env` ->

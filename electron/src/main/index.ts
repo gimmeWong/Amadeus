@@ -9,6 +9,7 @@ import http from 'http'
 import path from 'path'
 import fs from 'fs'
 import { fileURLToPath } from 'url'
+import { CompanionPanel } from './companionPanel.js'
 import {
   DesktopSettingsStore,
   type DesktopSettingsUpdate,
@@ -21,8 +22,11 @@ import {
 } from './wallpaperCanvasLifecycle.js'
 import { desktopPointHitsWindowRegions } from './wallpaperHitTesting.js'
 import { wallpaperWindowPolicy } from './wallpaperWindowPolicy.js'
+import { isWallpaperStartup } from './startupMode.js'
+import { ApplicationLifecycle } from './appLifecycle.js'
 import { applicationMenuTemplate } from './applicationMenu.js'
 import { defaultMpsFallbackEnvironment } from './mpsFallbackPolicy.js'
+import { auipStoragePartition } from './auipStorage.js'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
@@ -150,13 +154,29 @@ type WorkPreviewSurface = {
 }
 const workPreviewSurfaces = new Map<string, WorkPreviewSurface>()
 const workPreviewIdsByWorkItem = new Map<string, string>()
+let companionBridge: WallpaperBridgeDescriptor | null = null
+const companionPanel = new CompanionPanel({
+  userDataDir: USER_DATA_DIR,
+  preload: path.join(__dirname, '..', 'preload', 'companion.cjs'),
+  portraitCacheDir: process.env.AMADEUS_COMPANION_PORTRAIT_CACHE
+    || path.join(PROJECT_ROOT, '..', 'visual novel player', 'out', 'vn_portrait_cache'),
+  bridge: () => companionBridge,
+  slice: () => [
+    electronCanvasLifecycle.window?.webContents,
+    electronSliceWindow?.webContents,
+  ],
+  target: workItemId => {
+    const id = workPreviewIdsByWorkItem.get(workItemId)
+    return (id ? workPreviewSurfaces.get(id)?.window : null) || null
+  },
+})
 let workOverlayHitTestTimer: NodeJS.Timeout | null = null
 let workOverlayIgnoringMouse = false
 let workOverlayPanelBounds: Electron.Rectangle | null = null
 let workOverlayHitRegions: Electron.Rectangle[] = []
 let pythonProcess: ChildProcess | null = null
 let backendStopping: Promise<void> | null = null
-let quittingAfterBackendStop = false
+const applicationLifecycle = new ApplicationLifecycle()
 let backendOwned = false
 
 const BACKEND_PORT = 17777
@@ -183,6 +203,10 @@ type WallpaperBridgeDescriptor = {
   assetPort: number
   bridgePort: number
   assetVersion: string
+  graphicsProfile: 'standard' | 'power_saving' | 'custom'
+  renderMaxFps: number
+  renderTextureSampling: boolean
+  renderMaxResolution: number | null
   sliceBounds: { x: number; y: number; width: number; height: number }
 }
 
@@ -193,6 +217,10 @@ function getAppIconPath(): string | undefined {
 
 function wantsWorkOverlay(args = process.argv): boolean {
   return args.includes('--work-overlay') || process.env.AMADEUS_WORK_OVERLAY === '1'
+}
+
+function wantsWallpaper(args = process.argv): boolean {
+  return isWallpaperStartup(args, process.env)
 }
 
 // Python backend management.
@@ -473,6 +501,7 @@ function guardTrustedRendererShell(window: BrowserWindow): void {
 }
 
 function createWindow(): void {
+  const isWallpaperOnly = wantsWallpaper()
   mainWindow = new BrowserWindow({
     width: 1100,
     height: 800,
@@ -481,6 +510,7 @@ function createWindow(): void {
     icon: getAppIconPath(),
     title: '',
     frame: true,
+    show: !isWallpaperOnly,
     autoHideMenuBar: true,
     webPreferences: {
       preload: path.join(__dirname, '..', 'preload', 'index.mjs'),
@@ -499,17 +529,27 @@ function createWindow(): void {
   })
 
   // load from vite dev server or built files
+  const queryParam = wantsWallpaper() ? '?wallpaper=1' : ''
   if (isDev) {
-    mainWindow.loadURL('http://localhost:5173')
+    mainWindow.loadURL(`http://localhost:5173${queryParam}`)
       .catch(() => {
         // fallback: try built files
         const p = path.join(__dirname, '..', 'renderer', 'index.html')
-        if (fs.existsSync(p)) mainWindow?.loadFile(p)
+        if (fs.existsSync(p)) mainWindow?.loadFile(p, wantsWallpaper() ? { query: { wallpaper: '1' } } : undefined)
       })
   } else {
-    mainWindow.loadFile(path.join(__dirname, '..', 'renderer', 'index.html'))
+    mainWindow.loadFile(
+      path.join(__dirname, '..', 'renderer', 'index.html'),
+      wantsWallpaper() ? { query: { wallpaper: '1' } } : undefined
+    )
   }
 
+  mainWindow.on('close', (event) => {
+    if (applicationLifecycle.shouldHideWallpaperWindow(wantsWallpaper())) {
+      event.preventDefault()
+      mainWindow?.hide()
+    }
+  })
   mainWindow.on('closed', () => { mainWindow = null })
 }
 
@@ -522,7 +562,21 @@ function normalizeWallpaperBridge(raw: unknown): WallpaperBridgeDescriptor | nul
   const value = raw && typeof raw === 'object' ? raw as Record<string, unknown> : {}
   const assetPort = normalizeLocalPort(value.assetPort)
   const bridgePort = normalizeLocalPort(value.bridgePort)
-  if (assetPort < 0 || bridgePort < 0) return null
+  const graphicsProfile = String(value.graphicsProfile || '')
+  const renderMaxFps = Number(value.renderMaxFps)
+  const renderMaxResolution = value.renderMaxResolution == null
+    ? null
+    : Number(value.renderMaxResolution)
+  if (
+    assetPort < 0
+    || bridgePort < 0
+    || !['standard', 'power_saving', 'custom'].includes(graphicsProfile)
+    || !Number.isFinite(renderMaxFps)
+    || renderMaxFps <= 0
+    || (renderMaxResolution !== null && (
+      !Number.isFinite(renderMaxResolution) || renderMaxResolution <= 0
+    ))
+  ) return null
   const rawBounds = value.sliceBounds && typeof value.sliceBounds === 'object'
     ? value.sliceBounds as Record<string, unknown>
     : {}
@@ -541,6 +595,10 @@ function normalizeWallpaperBridge(raw: unknown): WallpaperBridgeDescriptor | nul
     assetPort,
     bridgePort,
     assetVersion: String(value.assetVersion || ''),
+    graphicsProfile: graphicsProfile as WallpaperBridgeDescriptor['graphicsProfile'],
+    renderMaxFps,
+    renderTextureSampling: value.renderTextureSampling === true,
+    renderMaxResolution,
     sliceBounds,
   }
 }
@@ -567,7 +625,13 @@ function electronSliceUrl(bridge: WallpaperBridgeDescriptor): string {
   const query = new URLSearchParams({
     bridgePort: String(bridge.bridgePort),
     assetVersion: bridge.assetVersion,
+    graphicsProfile: bridge.graphicsProfile,
+    renderMaxFps: String(bridge.renderMaxFps),
+    renderTextureSampling: bridge.renderTextureSampling ? '1' : '0',
   })
+  if (bridge.renderMaxResolution !== null) {
+    query.set('renderMaxResolution', String(bridge.renderMaxResolution))
+  }
   if (wallpaperWindowPolicy(process.platform).hostMode === 'scene') {
     query.set('host', 'electron')
     query.set('sliceHost', 'electron')
@@ -621,8 +685,7 @@ function createElectronCanvasWindow(bridge: WallpaperBridgeDescriptor, bridgeKey
     skipTaskbar: true,
     alwaysOnTop: false,
     autoHideMenuBar: true,
-    ...platformPolicy.constructorOptions,
-    focusable: true,
+    ...platformPolicy.canvasConstructorOptions,
     webPreferences: {
       preload: path.join(__dirname, '..', 'preload', 'slice.cjs'),
       contextIsolation: true,
@@ -797,6 +860,8 @@ function updateElectronSliceBounds(): void {
 }
 
 function closeElectronSliceWindow(): void {
+  void companionPanel.close()
+  companionBridge = null
   stopElectronSliceDesktopMonitor()
   closeElectronCanvasWindow()
   electronSliceWindow?.close()
@@ -811,6 +876,10 @@ function createElectronSliceWindow(rawBridge: unknown): boolean {
   const bridge = normalizeWallpaperBridge(rawBridge)
   if (!bridge) return false
   const platformPolicy = wallpaperWindowPolicy(process.platform)
+  if (companionBridge && (companionBridge.bridgePort !== bridge.bridgePort || companionBridge.assetPort !== bridge.assetPort)) {
+    void companionPanel.close()
+  }
+  companionBridge = bridge
   electronSliceLayout = bridge.sliceBounds
   const bridgeKey = `${bridge.assetPort}:${bridge.bridgePort}:${bridge.assetVersion}:${JSON.stringify(bridge.sliceBounds)}`
   if (electronSliceWindow && !electronSliceWindow.isDestroyed()) {
@@ -1716,6 +1785,7 @@ function createWorkPreviewSurface(descriptor: WorkPreviewDescriptor): {
     destroyWorkPreviewSurface(descriptor.previewId)
   })
   loadWorkPreviewContent(surface)
+  companionPanel.attachPreview(window, descriptor.workItemId)
   return { ok: true, detail: '', descriptor: projectedWorkPreviewDescriptor(surface) }
 }
 
@@ -1974,14 +2044,13 @@ async function openAuipInWorkPreview(
     return { ok: false, detail: error instanceof Error ? error.message : String(error) }
   }
 
-  const partitionToken = workPreviewPartitionToken(`${surface.descriptor.previewId}-auip`)
   const appView = new WebContentsView({
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
       webSecurity: true,
-      partition: `auip-work-preview-${partitionToken}`,
+      partition: auipStoragePartition(surface.descriptor.workItemId, policy.entryPath),
     },
   })
   appView.setBackgroundColor('#050708')
@@ -1995,6 +2064,13 @@ async function openAuipInWorkPreview(
   })
   configureWorkPreviewSession(appView.webContents.session)
   restrictAuipContentNetwork(appView.webContents.session, policy)
+
+  const diagnostics: string[] = []
+  appView.webContents.on('console-message', (_event, level, message) => {
+    if (level < 2 || !message || diagnostics.includes(message.slice(0, 300))) return
+    diagnostics.push(message.slice(0, 300))
+    if (diagnostics.length > 3) diagnostics.shift()
+  })
 
   return await new Promise(resolve => {
     const pending: PendingAuipHandoff = {
@@ -2011,7 +2087,10 @@ async function openAuipInWorkPreview(
           detail: 'Host did not commit AUIP Attach before the handoff deadline.',
         })
       }, 65_000),
-      resolve,
+      resolve: result => resolve(result.ok || diagnostics.length === 0 ? result : {
+        ...result,
+        detail: `${result.detail} Application diagnostic: ${diagnostics.join(' | ')}`,
+      }),
     }
     surface.pendingAuip = pending
     publishWorkPreviewPresentation(surface, 'auip-preloading')
@@ -2564,7 +2643,13 @@ app.on('second-instance', (_event, commandLine) => {
     createWorkOverlayWindow()
     return
   }
+  const request = applicationLifecycle.requestMainWindow(Boolean(mainWindow && !mainWindow.isDestroyed()))
+  if (request === 'defer') return
+  if (request === 'create') {
+    createWindow()
+  }
   if (!mainWindow) return
+  mainWindow.show()
   if (mainWindow.isMinimized()) mainWindow.restore()
   mainWindow.focus()
 })
@@ -2576,13 +2661,25 @@ app.whenReady().then(async () => {
     console.error('[electron] backend failed to become ready', error)
   }
   createWindow()
+  if (applicationLifecycle.completeStartup()) {
+    mainWindow?.show()
+    mainWindow?.focus()
+  }
   if (wantsWorkOverlay()) createWorkOverlayWindow()
   screen.on('display-metrics-changed', updateElectronSliceBounds)
   screen.on('display-added', updateElectronSliceBounds)
   screen.on('display-removed', updateElectronSliceBounds)
 
   app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow()
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.show()
+      if (mainWindow.isMinimized()) mainWindow.restore()
+      mainWindow.focus()
+    } else {
+      createWindow()
+      mainWindow?.show()
+      mainWindow?.focus()
+    }
   })
 })
 
@@ -2598,9 +2695,8 @@ app.on('before-quit', (event) => {
   for (const appWindow of auipAppWindows) appWindow.close()
   auipAppWindows.clear()
   auipAppSurfacesById.clear()
-  if (quittingAfterBackendStop || !pythonProcess) return
+  if (!applicationLifecycle.beginQuit(Boolean(pythonProcess))) return
   event.preventDefault()
-  quittingAfterBackendStop = true
   void stopBackend().finally(() => {
     app.quit()
   })
